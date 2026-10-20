@@ -1,0 +1,81 @@
+server:
+  port: 8080
+  shutdown: graceful          # 生产口径：先排空在途请求再退出
+  error:
+    include-stacktrace: never # 双保险：即使 advice 漏网也不出栈
+
+spring:
+  application:
+    name: agent-flow
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    # 本地默认：H2 文件库（PostgreSQL 兼容模式），零外部中间件可启动；数据文件在 ./data（已 gitignore）
+    url: jdbc:h2:file:./data/agentflow;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: true
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true         # liveness / readiness 分离，K8s 与 compose 健康检查均可用
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+agentflow:
+  security:
+    # 三处一致口径之一：yml 默认 = 代码默认 = 文档。本地 false，prod profile 覆盖为 true
+    enabled: false
+    api-token: ${AGENTFLOW_API_TOKEN:}
+    jwt-secret: ${AGENTFLOW_JWT_SECRET:}   # enabled=true 且此值为空 → 启动自检 fail-fast；本地 false 时可用 dev fallback
+    master-key: ${AGENTFLOW_MASTER_KEY:}   # 凭证库 AES-GCM 主密钥（base64 32B）；缺失时凭证库报 A0400，其它功能不受影响
+    token-ttl: 2h                          # JWT 有效期
+    rate-limit-per-minute: 120             # per-principal 固定窗限流；显式 0=关闭（仅 enabled=true 生效）
+  nodes:
+    # 凭证全部 env 注入（默认空串）：空凭证不阻塞启动，节点照常注册；执行时报不可重试的配置错误
+    # 真实 key 需用户自行申请，见 docs/TOOLS-CHECKLIST.md
+    llm:
+      api-key: ${BAILIAN_API_KEY:}
+      default-model: qwen-plus        # 节点可用 params.model 覆盖（多模型可配置口径）
+    image:
+      api-key: ${BAILIAN_API_KEY:}    # 万相与 LLM 同源（DashScope）
+      base-url: https://dashscope.aliyuncs.com
+    wechat:
+      app-id: ${WECHAT_APPID:}
+      app-secret: ${WECHAT_SECRET:}
+      base-url: https://api.weixin.qq.com
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [traceId=%X{traceId:-}] %logger{36} - %msg%n"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  # 生产：PostgreSQL 16（云数据库或 compose 内 pgvector 容器），连接串/账号密码全部 env 注入，禁止写死
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # 定容依据：峰值 100 QPS × 平均查询 20ms ≈ 2 并发连接，工作流执行写入另有异步闸门（Semaphore 16）；
+      # 20 为单实例上限的稳妥值，多实例部署时按总连接数÷PG max_connections 重新分推（见 IMPLEMENTATION-PLAN §9）
+      maximum-pool-size: 20
+      connection-timeout: 3000
+agentflow:
+  security:
+    enabled: true
+    # prod 硬要求：AGENTFLOW_JWT_SECRET（≥ 32 字符随机串）与 AGENTFLOW_MASTER_KEY（base64 的 32B 主密钥）必须 env 注入；
+    # 缺 JWT 密钥启动即失败，缺主密钥仅凭证库不可用（A0400 降级面容错）
+  # nodes.* 继承默认段：prod 仍由同一组环境变量注入（BAILIAN_API_KEY/WECHAT_APPID/WECHAT_SECRET），
+  # 差异仅在于云主机需出网白名单：dashscope.aliyuncs.com / api.weixin.qq.com（见 TOOLS-CHECKLIST 云服务段）

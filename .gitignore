@@ -1,0 +1,26 @@
+# --- 构建产物 ---
+target/
+node_modules/
+dist/
+*.class
+
+# --- 密钥与环境文件（skill §5：禁止入库）---
+.env
+.env.*
+*.env
+*secret*
+*apikey*
+*.pem
+application-local.yml
+
+# --- 本地数据目录（H2/PG 数据卷）---
+data/
+*.mv.db
+*.trace.db
+pgdata/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.iml
+.DS_Store

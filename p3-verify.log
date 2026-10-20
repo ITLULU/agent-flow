@@ -1,0 +1,1119 @@
+﻿[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] agent-flow-server                                                  [pom]
+[INFO] platform-common                                                    [jar]
+[INFO] workflow-engine                                                    [jar]
+[INFO] node-adapters                                                      [jar]
+[INFO] server-application                                                 [jar]
+[INFO] 
+[INFO] ------------------< com.agentflow:agent-flow-server >-------------------
+[INFO] Building agent-flow-server 0.1.0-SNAPSHOT                          [1/5]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ agent-flow-server ---
+[INFO] 
+[INFO] -------------------< com.agentflow:platform-common >--------------------
+[INFO] Building platform-common 0.1.0-SNAPSHOT                            [2/5]
+[INFO]   from platform-common\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ platform-common ---
+[INFO] Deleting D:\source\agent-flow\server\agent-flow-server\platform-common\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ platform-common ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\platform-common\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ platform-common ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 6 source files with javac [debug parameters release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ platform-common ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\platform-common\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ platform-common ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 2 source files with javac [debug parameters release 21] to target\test-classes
+[INFO] 
+[INFO] --- surefire:3.5.2:test (default-test) @ platform-common ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.agentflow.common.security.SecurityPrimitivesTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.572 s -- in com.agentflow.common.security.SecurityPrimitivesTest
+[INFO] Running com.agentflow.common.trace.TraceIdUtilsTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.123 s -- in com.agentflow.common.trace.TraceIdUtilsTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ platform-common ---
+[INFO] Building jar: D:\source\agent-flow\server\agent-flow-server\platform-common\target\platform-common-0.1.0-SNAPSHOT.jar
+[INFO] 
+[INFO] -------------------< com.agentflow:workflow-engine >--------------------
+[INFO] Building workflow-engine 0.1.0-SNAPSHOT                            [3/5]
+[INFO]   from workflow-engine\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ workflow-engine ---
+[INFO] Deleting D:\source\agent-flow\server\agent-flow-server\workflow-engine\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ workflow-engine ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\workflow-engine\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ workflow-engine ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 17 source files with javac [debug parameters release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ workflow-engine ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\workflow-engine\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ workflow-engine ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 3 source files with javac [debug parameters release 21] to target\test-classes
+[INFO] 
+[INFO] --- surefire:3.5.2:test (default-test) @ workflow-engine ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.agentflow.engine.dag.DagValidatorTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.265 s -- in com.agentflow.engine.dag.DagValidatorTest
+[INFO] Running com.agentflow.engine.spi.NodeExecutorContractTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.041 s -- in com.agentflow.engine.spi.NodeExecutorContractTest
+[INFO] Running com.agentflow.engine.WorkflowEngineSemanticsTest
+mvn : SLF4J(W): No SLF4J providers were found.
+所在位置 行:1 字符: 172
++ ... agent-flow\server\agent-flow-server; mvn -B clean verify 2>&1 | Out-F ...
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (SLF4J(W): No SLF4J providers were 
+    found.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.247 s -- in com.agentflow.engine.WorkflowEngineSemanticsTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ workflow-engine ---
+[INFO] Building jar: D:\source\agent-flow\server\agent-flow-server\workflow-engine\target\workflow-engine-0.1.0-SNAPSHOT.jar
+[INFO] 
+[INFO] --------------------< com.agentflow:node-adapters >---------------------
+[INFO] Building node-adapters 0.1.0-SNAPSHOT                              [4/5]
+[INFO]   from node-adapters\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for com.google.protobuf:protobuf-java-util:jar:3.22.1 is invalid, transitive dependencies (if any) will not be available: 2 problems were encountered while building the effective model for com.google.protobuf:protobuf-java-util:3.22.1
+[ERROR] 'dependencies.dependency.groupId' for $com.google.protobuf:protobuf-java:jar with value '$com.google.protobuf' does not match a valid id pattern. @ 
+[ERROR] 'dependencies.dependency.version' for $com.google.protobuf:protobuf-java:jar is missing. @ 
+
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ node-adapters ---
+[INFO] Deleting D:\source\agent-flow\server\agent-flow-server\node-adapters\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ node-adapters ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\node-adapters\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ node-adapters ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 8 source files with javac [debug parameters release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ node-adapters ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\node-adapters\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ node-adapters ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 7 source files with javac [debug parameters release 21] to target\test-classes
+[INFO] 
+[INFO] --- surefire:3.5.2:test (default-test) @ node-adapters ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.agentflow.nodes.core.EchoNodeExecutorTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.241 s -- in com.agentflow.nodes.core.EchoNodeExecutorTest
+[INFO] Running com.agentflow.nodes.http.HttpCollectNodeExecutorTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.489 s -- in com.agentflow.nodes.http.HttpCollectNodeExecutorTest
+[INFO] Running com.agentflow.nodes.image.WanxiangImageNodeExecutorTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.181 s -- in com.agentflow.nodes.image.WanxiangImageNodeExecutorTest
+[INFO] Running com.agentflow.nodes.llm.LlmChatNodeExecutorTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.054 s -- in com.agentflow.nodes.llm.LlmChatNodeExecutorTest
+[INFO] Running com.agentflow.nodes.llm.SpringAiLlmGatewayTest
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.092 s -- in com.agentflow.nodes.llm.SpringAiLlmGatewayTest
+[INFO] Running com.agentflow.nodes.wechat.WechatDraftNodeExecutorTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.973 s -- in com.agentflow.nodes.wechat.WechatDraftNodeExecutorTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 47, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ node-adapters ---
+[INFO] Building jar: D:\source\agent-flow\server\agent-flow-server\node-adapters\target\node-adapters-0.1.0-SNAPSHOT.jar
+[INFO] 
+[INFO] ------------------< com.agentflow:server-application >------------------
+[INFO] Building server-application 0.1.0-SNAPSHOT                         [5/5]
+[INFO]   from server-application\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ server-application ---
+[INFO] Deleting D:\source\agent-flow\server\agent-flow-server\server-application\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ server-application ---
+[INFO] Copying 3 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ server-application ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 27 source files with javac [debug parameters release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ server-application ---
+[INFO] skip non existing resourceDirectory D:\source\agent-flow\server\agent-flow-server\server-application\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ server-application ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 10 source files with javac [debug parameters release 21] to target\test-classes
+[INFO] 
+[INFO] --- surefire:3.5.2:test (default-test) @ server-application ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.agentflow.server.AgentFlowApplicationTests
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+17:36:52.685 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.agentflow.server.AgentFlowApplicationTests]: AgentFlowApplicationTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+17:36:53.256 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.AgentFlowApplicationTests
+2026-10-19 17:36:55.118 [main] INFO  [traceId=] c.a.n.client.logging.NacosLogging - Nacos Logging Adapter Builder: com.alibaba.nacos.logger.adapter.logback12.LogbackNacosLoggingAdapterBuilder
+2026-10-19 17:36:55.132 [main] INFO  [traceId=] c.a.n.client.logging.NacosLogging - Nacos Logging Adapter Builder: com.alibaba.nacos.logger.adapter.logback14.LogbackNacosLoggingAdapterBuilder
+2026-10-19 17:36:55.136 [main] INFO  [traceId=] c.a.n.client.logging.NacosLogging - Nacos Logging Adapter: com.alibaba.nacos.logger.adapter.logback14.LogbackNacosLoggingAdapter match ch.qos.logback.classic.Logger success.
+2026-10-19 17:36:55.163 [main] INFO  [traceId=] c.a.n.client.logging.NacosLogging - Nacos Logging Adapter Builder: com.alibaba.nacos.logger.adapter.log4j2.Log4j2NacosLoggingAdapterBuilder
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:36:55,937 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:36:55,940 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:36:55,941 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:36:55,944 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:36:55,945 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:36:55,945 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:36:55,949 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+2026-10-19 17:36:55.966 [main] INFO  [traceId=] c.a.server.AgentFlowApplicationTests - Starting AgentFlowApplicationTests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+17:36:55,949 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:36:55,949 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:36:55.971 [main] INFO  [traceId=] c.a.server.AgentFlowApplicationTests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:00.763 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:00.806 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+17:37:00,864 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:00,866 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:00,866 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:00,877 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:00,877 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:00,877 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:00,882 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:00,882 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:00,882 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:00,913 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+17:37:00,913 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+17:37:00,913 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+17:37:00,913 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+17:37:00,932 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+17:37:00,932 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_L
+OG_FILE] - Attempted to append to non started appender [CONFIG_LOG_FILE].
+2026-10-19 17:37:01.447 [main] INFO  [traceId=] c.a.n.p.a.s.c.ClientAuthPluginManager - [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.impl.NacosClientAuthServiceImpl success.
+2026-10-19 17:37:01.448 [main] INFO  [traceId=] c.a.n.p.a.s.c.ClientAuthPluginManager - [ClientAuthPluginManager] Load ClientAuthService com.alibaba.nacos.client.auth.ram.RamClientAuthServiceImpl success.
+17:37:01,409 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+17:37:01,409 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+17:37:01,409 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+17:37:01,410 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+17:37:01,412 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+17:37:01,412 |-WARN in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_L
+OG_FILE] - Attempted to append to non started appender [REMOTE_LOG_FILE].
+2026-10-19 17:37:01.458 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:05.045 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:05.118 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:05.120 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:05.598 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:05.602 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 9568 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:08.214 [main] WARN  [traceId=] c.a.server.security.AuthConfig - agentflow.security.jwt-secret 未配置，使用 dev fallback——生产（enabled=true）禁止此状态，StartupSelfCheck 会拦截
+2026-10-19 17:37:11.064 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-10-19 17:37:11.907 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:af-base-test user=SA
+2026-10-19 17:37:11.927 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-10-19 17:37:12.201 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-base-test (H2 2.3)
+2026-10-19 17:37:12.370 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:12.386 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.087s)
+2026-10-19 17:37:12.441 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:12.631 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:12.672 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:12.802 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:12.953 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.200s)
+2026-10-19 17:37:17.193 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:17.551 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54922 (http) with context path '/'
+2026-10-19 17:37:17.624 [main] INFO  [traceId=] c.a.server.AgentFlowApplicationTests - Started AgentFlowApplicationTests in 23.589 seconds (process running for 28.708)
+2026-10-19 17:37:18.077 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:18.078 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:18.078 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:18.078 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: false
+2026-10-19 17:37:18.078 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:18.079 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:18.079 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : false
+2026-10-19 17:37:18.079 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 120
+Mockito is currently self-attaching to enable the inline-mock-maker. This will 
+no longer work in future releases of the JDK. Please add Mockito as an agent to
+ your build as described in Mockito's documentation: https://javadoc.io/doc/org
+.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (D:\mavenRepo\net\bytebuddy\b
+yte-buddy-agent\1.17.7\byte-buddy-agent-1.17.7.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamic
+AgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrume
+nt.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future re
+lease
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader cla
+sses because bootstrap classpath has been appended
+2026-10-19 17:37:20.984 [http-nio-auto-1-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:20.984 [http-nio-auto-1-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:20.988 [http-nio-auto-1-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 4 ms
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 29.67 s -- in com.agentflow.server.AgentFlowApplicationTests
+[INFO] Running com.agentflow.server.P2DryRunE2ETests
+2026-10-19 17:37:21.592 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P2DryRunE2ETests]: P2DryRunE2ETests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:21.597 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P2DryRunE2ETests
+17:37:21,688 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:21,689 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,689 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:21,693 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:21,693 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,693 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:21,695 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:21,695 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,695 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:21,725 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:21,725 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,725 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:21,727 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:21,727 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,727 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:21,729 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:21,729 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:21,729 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:21.731 [main] INFO  [traceId=] c.agentflow.server.P2DryRunE2ETests - Starting P2DryRunE2ETests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:21.732 [main] INFO  [traceId=] c.agentflow.server.P2DryRunE2ETests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:22.956 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:22.961 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:22.962 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:23.102 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:23.104 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:23.105 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:23.253 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat-1].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:23.253 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1513 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:23.425 [main] WARN  [traceId=] c.a.server.security.AuthConfig - agentflow.security.jwt-secret 未配置，使用 dev fallback——生产（enabled=true）禁止此状态，StartupSelfCheck 会拦截
+2026-10-19 17:37:23.623 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
+2026-10-19 17:37:23.630 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection conn10: url=jdbc:h2:mem:af-p2-e2e user=SA
+2026-10-19 17:37:23.631 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
+2026-10-19 17:37:23.641 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p2-e2e (H2 2.3)
+2026-10-19 17:37:23.661 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:23.663 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.015s)
+2026-10-19 17:37:23.676 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:23.699 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:23.714 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:23.749 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:23.818 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.074s)
+2026-10-19 17:37:24.318 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:24.391 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54929 (http) with context path '/'
+2026-10-19 17:37:24.405 [main] INFO  [traceId=] c.agentflow.server.P2DryRunE2ETests - Started P2DryRunE2ETests in 2.801 seconds (process running for 35.49)
+2026-10-19 17:37:24.408 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:24.408 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: false
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : false
+2026-10-19 17:37:24.409 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 120
+2026-10-19 17:37:24.475 [http-nio-auto-2-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat-1].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:24.475 [http-nio-auto-2-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:24.477 [http-nio-auto-2-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 2 ms
+2026-10-19 17:37:24.723 [virtual-122] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=4c51533055714b028945488ef5fbc569] 节点 g 第 1 次尝试失败: ApiException: 请求参数不合法: LLM 网关未配置（缺少 BAILIAN_API_KEY），llm.chat 无法执行
+2026-10-19 17:37:24.741 [virtual-122] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=4c51533055714b028945488ef5fbc569] 节点 g 走降级路径继续执行: LLM 生成失败，下游按原文处理: 请求参数不合法: LLM 网关未配置（缺少 BAILIAN_API_KEY），llm.chat 无法执行
+2026-10-19 17:37:24.764 [virtual-122] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=4c51533055714b028945488ef5fbc569] 执行 1 完成: SUCCESS_WITH_DEGRADED
+2026-10-19 17:37:25.109 [virtual-132] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=43994ca32aac4e5db258edc98e853942] 节点 c 第 1 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54932/ 连接被拒绝: ConnectException
+2026-10-19 17:37:26.118 [virtual-132] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=43994ca32aac4e5db258edc98e853942] 节点 c 第 2 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54932/ 连接被拒绝: ConnectException
+2026-10-19 17:37:28.126 [virtual-132] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=43994ca32aac4e5db258edc98e853942] 节点 c 第 3 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54932/ 连接被拒绝: ConnectException
+2026-10-19 17:37:28.132 [virtual-132] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=43994ca32aac4e5db258edc98e853942] 节点 c 走降级路径继续执行: 采集失败，跳过该来源: 外部依赖拒绝连接: http://127.0.0.1:54932/ 连接被拒绝: ConnectException
+2026-10-19 17:37:28.136 [virtual-132] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=43994ca32aac4e5db258edc98e853942] 执行 2 完成: SUCCESS_WITH_DEGRADED
+2026-10-19 17:37:28.217 [virtual-141] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=ac649961dff14388afb621b8baa02ebb] 节点 c 第 1 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54939/ 连接被拒绝: ConnectException
+2026-10-19 17:37:29.244 [virtual-141] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=ac649961dff14388afb621b8baa02ebb] 节点 c 第 2 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54939/ 连接被拒绝: ConnectException
+2026-10-19 17:37:31.254 [virtual-141] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=ac649961dff14388afb621b8baa02ebb] 节点 c 第 3 次尝试失败: ApiException: 外部依赖拒绝连接: http://127.0.0.1:54939/ 连接被拒绝: ConnectException
+2026-10-19 17:37:31.256 [virtual-141] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=ac649961dff14388afb621b8baa02ebb] 节点 c 走降级路径继续执行: 采集失败，跳过该来源: 外部依赖拒绝连接: http://127.0.0.1:54939/ 连接被拒绝: ConnectException
+2026-10-19 17:37:31.263 [virtual-141] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=ac649961dff14388afb621b8baa02ebb] 执行 3 完成: SUCCESS_WITH_DEGRADED
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.695 s -- in com.agentflow.server.P2DryRunE2ETests
+[INFO] Running com.agentflow.server.P2NodeWiringTests
+2026-10-19 17:37:31.289 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P2NodeWiringTests]: P2NodeWiringTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:31.293 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P2NodeWiringTests
+17:37:31,357 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:31,357 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,357 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:31,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:31,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:31,362 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:31,363 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,363 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:31,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:31,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:31,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:31,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:31,395 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:31,396 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:31,396 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:31.403 [main] INFO  [traceId=] c.agentflow.server.P2NodeWiringTests - Starting P2NodeWiringTests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:31.404 [main] INFO  [traceId=] c.agentflow.server.P2NodeWiringTests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:32.585 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:32.587 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:32.588 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:32.763 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
+2026-10-19 17:37:32.771 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection conn20: url=jdbc:h2:mem:af-p2-wiring user=SA
+2026-10-19 17:37:32.772 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
+2026-10-19 17:37:32.779 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p2-wiring (H2 2.3)
+2026-10-19 17:37:32.795 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:32.796 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.011s)
+2026-10-19 17:37:32.798 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:32.811 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:32.818 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:32.842 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:32.893 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.057s)
+2026-10-19 17:37:32.964 [main] WARN  [traceId=] c.a.server.security.AuthConfig - agentflow.security.jwt-secret 未配置，使用 dev fallback——生产（enabled=true）禁止此状态，StartupSelfCheck 会拦截
+2026-10-19 17:37:33.214 [main] INFO  [traceId=] c.agentflow.server.P2NodeWiringTests - Started P2NodeWiringTests in 1.913 seconds (process running for 44.299)
+2026-10-19 17:37:33.215 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:33.215 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:33.215 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 8080
+2026-10-19 17:37:33.215 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: false
+2026-10-19 17:37:33.216 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:33.216 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:33.216 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : false
+2026-10-19 17:37:33.216 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 120
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.973 s -- in com.agentflow.server.P2NodeWiringTests
+[INFO] Running com.agentflow.server.P3AuthE2ETests
+2026-10-19 17:37:33.269 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P3AuthE2ETests]: P3AuthE2ETests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:33.275 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P3AuthE2ETests
+17:37:33,353 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:33,353 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,353 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:33,355 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:33,355 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,356 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:33,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:33,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,359 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:33,386 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:33,386 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,386 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:33,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:33,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,388 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:33,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:33,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:33,391 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:33.394 [main] INFO  [traceId=] com.agentflow.server.P3AuthE2ETests - Starting P3AuthE2ETests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:33.395 [main] INFO  [traceId=] com.agentflow.server.P3AuthE2ETests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:34.424 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:34.427 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:34.428 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:34.518 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:34.520 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:34.521 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:34.637 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat-2].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:34.637 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1234 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:34.917 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Starting...
+2026-10-19 17:37:34.923 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-4 - Added connection conn30: url=jdbc:h2:mem:af-p3-auth user=SA
+2026-10-19 17:37:34.924 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Start completed.
+2026-10-19 17:37:34.928 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p3-auth (H2 2.3)
+2026-10-19 17:37:34.947 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:34.949 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.009s)
+2026-10-19 17:37:34.953 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:34.962 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:34.973 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:35.007 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:35.047 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.054s)
+2026-10-19 17:37:35.389 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:35.447 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54947 (http) with context path '/'
+2026-10-19 17:37:35.458 [main] INFO  [traceId=] com.agentflow.server.P3AuthE2ETests - Started P3AuthE2ETests in 2.177 seconds (process running for 46.543)
+2026-10-19 17:37:35.460 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:35.460 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:35.461 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:35.461 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: true
+2026-10-19 17:37:35.461 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:35.462 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:35.462 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : true
+2026-10-19 17:37:35.462 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 0
+2026-10-19 17:37:35.599 [http-nio-auto-3-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat-2].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:35.599 [http-nio-auto-3-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:35.603 [http-nio-auto-3-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 4 ms
+2026-10-19 17:37:37.297 [http-nio-auto-3-exec-2] WARN  [traceId=bee9662403d645f584429db3115ffb1c] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0404 msg=资源不存在: workflow 1
+2026-10-19 17:37:37.313 [http-nio-auto-3-exec-3] WARN  [traceId=f6c168e6a6f14e51ba0639386ccf6cbe] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0404 msg=资源不存在: workflow 1
+2026-10-19 17:37:37.335 [virtual-203] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=6f522f2f389044cb9572344d82b2d4a8] 执行 1 完成: SUCCESS
+2026-10-19 17:37:37.345 [http-nio-auto-3-exec-5] WARN  [traceId=6283e9e354514761a0d4774ba282d3e6] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0404 msg=资源不存在: workflow 1
+2026-10-19 17:37:37.367 [http-nio-auto-3-exec-6] WARN  [traceId=54c0f7a242bb42878f5060d8049c2ab0] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0400 msg=请求参数不合法: 用户名需为 3-32 位字母/数字/下划线
+2026-10-19 17:37:37.379 [http-nio-auto-3-exec-7] WARN  [traceId=c9574b56b03740fb8e996823fc6c6c41] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0400 msg=请求参数不合法: 口令长度需为 8-64 位
+2026-10-19 17:37:37.565 [http-nio-auto-3-exec-8] WARN  [traceId=c36581c417494072afe0635cc3f7493d] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0400 msg=请求参数不合法: 用户名已存在: p3alice
+2026-10-19 17:37:37.703 [http-nio-auto-3-exec-9] WARN  [traceId=12ff810436ea483b941dd4b9e83cdb64] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0401 msg=未认证或凭证无效: 用户名或口令错误
+2026-10-19 17:37:37.711 [http-nio-auto-3-exec-10] WARN  [traceId=4d0d08263e4945d28177760ad98e9796] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0401 msg=未认证或凭证无效: 用户名或口令错误
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.458 s -- in com.agentflow.server.P3AuthE2ETests
+[INFO] Running com.agentflow.server.P3CredentialE2ETests
+2026-10-19 17:37:37.735 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P3CredentialE2ETests]: P3CredentialE2ETests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:37.739 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P3CredentialE2ETests
+17:37:37,802 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+
+17:37:37,802 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+17:37:37,802 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:37,804 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:37,804 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:37,804 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:37,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:37,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:37,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:37,856 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:37,856 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:37,856 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:37,862 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:37,862 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:37,862 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:37,864 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:37,864 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:37,864 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:37.868 [main] INFO  [traceId=] c.a.server.P3CredentialE2ETests - Starting P3CredentialE2ETests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:37.870 [main] INFO  [traceId=] c.a.server.P3CredentialE2ETests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:38.726 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:38.730 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:38.730 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:38.818 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:38.820 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:38.820 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:38.925 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat-3].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:38.926 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1054 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:39.167 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Starting...
+2026-10-19 17:37:39.175 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-5 - Added connection conn40: url=jdbc:h2:mem:af-p3-cred user=SA
+2026-10-19 17:37:39.176 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Start completed.
+2026-10-19 17:37:39.182 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p3-cred (H2 2.3)
+2026-10-19 17:37:39.196 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:39.199 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.011s)
+2026-10-19 17:37:39.202 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:39.214 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:39.222 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:39.246 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:39.279 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.040s)
+2026-10-19 17:37:39.624 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:39.698 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54953 (http) with context path '/'
+2026-10-19 17:37:39.712 [main] INFO  [traceId=] c.a.server.P3CredentialE2ETests - Started P3CredentialE2ETests in 1.967 seconds (process running for 50.797)
+2026-10-19 17:37:39.714 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:39.715 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:39.715 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:39.715 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: true
+2026-10-19 17:37:39.716 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : true
+2026-10-19 17:37:39.716 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:39.716 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : true
+2026-10-19 17:37:39.716 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 0
+2026-10-19 17:37:39.760 [http-nio-auto-4-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat-3].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:39.761 [http-nio-auto-4-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:39.763 [http-nio-auto-4-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 2 ms
+2026-10-19 17:37:40.179 [virtual-250] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=0bbda74bed704e2faaff8651c0759c1a] 执行 1 完成: SUCCESS
+2026-10-19 17:37:40.680 [virtual-259] WARN  [traceId=9c074bfd93654ac28b1ae74aec9088de] c.a.s.p.JdbcCredentialProvider - credentialId=999999 不存在
+2026-10-19 17:37:40.681 [virtual-258] WARN  [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=9c074bfd93654ac28b1ae74aec9088de] 节点 w 第 1 次尝试失败: ApiException: 请求参数不合法: 凭证不存在或无法解密: credentialId=999999
+2026-10-19 17:37:40.683 [virtual-258] ERROR [traceId=] com.agentflow.engine.WorkflowEngine - [traceId=9c074bfd93654ac28b1ae74aec9088de] 节点 w 重试耗尽且无降级，执行终止: ApiException: 请求参数不合法: 凭证不存在或无法解密: credentialId=999999
+2026-10-19 17:37:40.684 [virtual-258] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=9c074bfd93654ac28b1ae74aec9088de] 执行 2 完成: FAILED
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.974 s -- in com.agentflow.server.P3CredentialE2ETests
+[INFO] Running com.agentflow.server.P3RateLimitE2ETests
+2026-10-19 17:37:40.711 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P3RateLimitE2ETests]: P3RateLimitE2ETests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:40.714 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P3RateLimitE2ETests
+17:37:40,784 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:40,784 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,784 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:40,786 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:40,787 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,787 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:40,789 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:40,789 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,789 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:40,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:40,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,806 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:40,809 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:40,809 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,809 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:40,811 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:40,812 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:40,812 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:40.815 [main] INFO  [traceId=] c.a.server.P3RateLimitE2ETests - Starting P3RateLimitE2ETests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:40.815 [main] INFO  [traceId=] c.a.server.P3RateLimitE2ETests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:41.741 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:41.746 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:41.747 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:41.818 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:41.820 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:41.821 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:41.920 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat-4].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:41.920 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1101 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:42.159 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Starting...
+2026-10-19 17:37:42.164 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-6 - Added connection conn50: url=jdbc:h2:mem:af-p3-rl user=SA
+2026-10-19 17:37:42.164 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Start completed.
+2026-10-19 17:37:42.167 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p3-rl (H2 2.3)
+2026-10-19 17:37:42.184 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:42.185 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.011s)
+2026-10-19 17:37:42.190 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:42.204 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:42.211 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:42.232 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:42.263 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.040s)
+2026-10-19 17:37:42.639 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:42.715 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54956 (http) with context path '/'
+2026-10-19 17:37:42.728 [main] INFO  [traceId=] c.a.server.P3RateLimitE2ETests - Started P3RateLimitE2ETests in 2.009 seconds (process running for 53.813)
+2026-10-19 17:37:42.730 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:42.730 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: true
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : true
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : true
+2026-10-19 17:37:42.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 3
+2026-10-19 17:37:42.764 [http-nio-auto-5-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat-4].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:42.765 [http-nio-auto-5-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:42.767 [http-nio-auto-5-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 2 ms
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.106 s -- in com.agentflow.server.P3RateLimitE2ETests
+[INFO] Running com.agentflow.server.P3ScheduleTests
+2026-10-19 17:37:42.822 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.P3ScheduleTests]: P3ScheduleTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:42.826 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.P3ScheduleTests
+17:37:42,889 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:42,889 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:42,889 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:42,891 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:42,891 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:42,891 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:42,892 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:42,892 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:42,892 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:42,912 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:42,912 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:42,912 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:42,916 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:42,916 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:42,916 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:42,918 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:42,918 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+2026-10-19 17:37:42.920 [main] INFO  [traceId=] c.agentflow.server.P3ScheduleTests - Starting P3ScheduleTests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+17:37:42,918 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:42.920 [main] INFO  [traceId=] c.agentflow.server.P3ScheduleTests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:43.677 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:43.678 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:43.679 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:43.802 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Starting...
+2026-10-19 17:37:43.805 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-7 - Added connection conn60: url=jdbc:h2:mem:af-p3-sched user=SA
+2026-10-19 17:37:43.805 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Start completed.
+2026-10-19 17:37:43.807 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p3-sched (H2 2.3)
+2026-10-19 17:37:43.816 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:43.818 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.009s)
+2026-10-19 17:37:43.820 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:43.834 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:43.842 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:43.861 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:43.882 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.026s)
+2026-10-19 17:37:43.935 [main] WARN  [traceId=] c.a.server.security.AuthConfig - agentflow.security.jwt-secret 未配置，使用 dev fallback——生产（enabled=true）禁止此状态，StartupSelfCheck 会拦截
+2026-10-19 17:37:44.176 [main] INFO  [traceId=] c.agentflow.server.P3ScheduleTests - Started P3ScheduleTests in 1.343 seconds (process running for 55.261)
+2026-10-19 17:37:44.179 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:44.180 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:44.181 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 8080
+2026-10-19 17:37:44.181 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: false
+2026-10-19 17:37:44.181 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:44.182 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:44.182 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : false
+2026-10-19 17:37:44.182 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 120
+2026-10-19 17:37:44.239 [main] INFO  [traceId=] c.a.server.schedule.ScheduleService - cron 触发 workflow=1 traceId=null
+2026-10-19 17:37:44.242 [virtual-306] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=a6e25b65dcc94e87be979b4101620ca0] 执行 1 完成: SUCCESS
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.439 s -- in com.agentflow.server.P3ScheduleTests
+[INFO] Running com.agentflow.server.security.AuthFilterTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.063 s -- in com.agentflow.server.security.AuthFilterTest
+[INFO] Running com.agentflow.server.security.JwtCodecTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.043 s -- in com.agentflow.server.security.JwtCodecTest
+[INFO] Running com.agentflow.server.WorkflowApiE2ETests
+2026-10-19 17:37:44.377 [main] INFO  [traceId=] o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [com.agentflow.server.WorkflowApiE2ETests]: WorkflowApiE2ETests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-10-19 17:37:44.381 [main] INFO  [traceId=] o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration com.agentflow.server.AgentFlowApplication for test class com.agentflow.server.WorkflowApiE2ETests
+17:37:44,455 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:44,455 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,455 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:44,457 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:44,457 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,457 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:44,459 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:44,459 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,459 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v3.5.6)
+
+17:37:44,477 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/config.log
+" as that given for appender [CONFIG_LOG_FILE] defined earlier.
+17:37:44,477 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,477 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[CONFIG_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:44,480 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/naming.log
+" as that given for appender [NAMING_LOG_FILE] defined earlier.
+17:37:44,480 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,480 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[NAMING_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+17:37:44,482 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - 'File' option has the same value "C:\Users\ad/logs/nacos/remote.log
+" as that given for appender [REMOTE_LOG_FILE] defined earlier.
+17:37:44,482 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - Collisions detected with FileAppender/RollingAppender instances def
+ined earlier. Aborting.
+17:37:44,482 |-ERROR in ch.qos.logback.core.rolling.RollingFileAppender[REMOTE_
+LOG_FILE] - For more information, please visit https://logback.qos.ch/codes.htm
+l#earlier_fa_collision
+2026-10-19 17:37:44.486 [main] INFO  [traceId=] c.a.server.WorkflowApiE2ETests - Starting WorkflowApiE2ETests using Java 21.0.7 with PID 9944 (started by ad in D:\source\agent-flow\server\agent-flow-server\server-application)
+2026-10-19 17:37:44.487 [main] INFO  [traceId=] c.a.server.WorkflowApiE2ETests - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 17:37:45.428 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'com.alibaba.cloud.nacos.NacosConfigAutoConfiguration' of type [com.alibaba.cloud.nacos.NacosConfigAutoConfiguration] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). The currently created BeanPostProcessor [nacosAnnotationProcessor] is declared through a non-static factory method on that class; consider declaring it as static instead.
+2026-10-19 17:37:45.429 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigProperties' of type [com.alibaba.cloud.nacos.NacosConfigProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:45.430 [main] WARN  [traceId=] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'nacosConfigManager' of type [com.alibaba.cloud.nacos.NacosConfigManager] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [nacosAnnotationProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2026-10-19 17:37:45.500 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 0 (http)
+2026-10-19 17:37:45.502 [main] INFO  [traceId=] o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 17:37:45.502 [main] INFO  [traceId=] o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.46]
+2026-10-19 17:37:45.619 [main] INFO  [traceId=] o.a.c.c.C.[Tomcat-5].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 17:37:45.620 [main] INFO  [traceId=] o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1129 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-10-19 17:37:45.717 [main] WARN  [traceId=] c.a.server.security.AuthConfig - agentflow.security.jwt-secret 未配置，使用 dev fallback——生产（enabled=true）禁止此状态，StartupSelfCheck 会拦截
+2026-10-19 17:37:45.834 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Starting...
+2026-10-19 17:37:45.838 [main] INFO  [traceId=] com.zaxxer.hikari.pool.HikariPool - HikariPool-8 - Added connection conn70: url=jdbc:h2:mem:af-p1-test user=SA
+2026-10-19 17:37:45.838 [main] INFO  [traceId=] com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Start completed.
+2026-10-19 17:37:45.841 [main] INFO  [traceId=] org.flywaydb.core.FlywayExecutor - Database: jdbc:h2:mem:af-p1-test (H2 2.3)
+2026-10-19 17:37:45.870 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Schema history table "public"."flyway_schema_history" does not exist yet
+2026-10-19 17:37:45.871 [main] INFO  [traceId=] o.f.core.internal.command.DbValidate - Successfully validated 2 migrations (execution time 00:00.024s)
+2026-10-19 17:37:45.877 [main] INFO  [traceId=] o.f.c.i.s.JdbcTableSchemaHistory - Creating Schema History table "public"."flyway_schema_history" ...
+2026-10-19 17:37:45.906 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Current version of schema "public": << Empty Schema >>
+2026-10-19 17:37:45.918 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "1 - engine core tables"
+2026-10-19 17:37:45.942 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Migrating schema "public" to version "2 - platform tables"
+2026-10-19 17:37:45.997 [main] INFO  [traceId=] o.f.core.internal.command.DbMigrate - Successfully applied 2 migrations to schema "public", now at version v2 (execution time 00:00.056s)
+2026-10-19 17:37:46.622 [main] INFO  [traceId=] o.s.b.a.e.web.EndpointLinksResolver - Exposing 2 endpoints beneath base path '/actuator'
+2026-10-19 17:37:46.710 [main] INFO  [traceId=] o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 54959 (http) with context path '/'
+2026-10-19 17:37:46.727 [main] INFO  [traceId=] c.a.server.WorkflowApiE2ETests - Started WorkflowApiE2ETests in 2.337 seconds (process running for 57.812)
+2026-10-19 17:37:46.730 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - === agent-flow 启动自检 ===
+2026-10-19 17:37:46.730 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - active profiles : []
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - server port     : 0
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - security.enabled: false
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_MASTER_KEY present : false
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - AGENTFLOW_API_TOKEN present  : false
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - jwt-secret present           : false
+2026-10-19 17:37:46.731 [main] INFO  [traceId=] c.a.server.startup.StartupSelfCheck - rate-limit per-minute        : 120
+2026-10-19 17:37:46.782 [http-nio-auto-6-exec-1] INFO  [traceId=] o.a.c.c.C.[Tomcat-5].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 17:37:46.783 [http-nio-auto-6-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 17:37:46.787 [http-nio-auto-6-exec-1] INFO  [traceId=] o.s.web.servlet.DispatcherServlet - Completed initialization in 4 ms
+2026-10-19 17:37:46.832 [http-nio-auto-6-exec-1] WARN  [traceId=b6fcfdaba20340c89741de653924ad0d] c.a.s.web.GlobalExceptionHandler - 业务异常 code=A0400 msg=请求参数不合法: DSL JSON 解析失败: JsonParseException
+2026-10-19 17:37:46.922 [virtual-344] INFO  [traceId=] c.a.server.exec.ExecutionManager - [traceId=774e8685eea14721b297fa40dd58604e] 执行 1 完成: SUCCESS
+2026-10-19 17:37:46.975 [http-nio-auto-6-exec-3] WARN  [traceId=189c61ab87ed44aaae8cbbb6a7a9d46e] c.a.s.web.GlobalExceptionHandler - 业务异常 code=C0500 msg=工作流定义不合法: 检测到环，无法拓扑排序（涉及节点数 2）
+2026-10-19 17:37:47.002 [http-nio-auto-6-exec-4] WARN  [traceId=5b60d365503944c8a2c15984e35a8f0f] c.a.s.web.GlobalExceptionHandler - 业务异常 code=C0500 msg=工作流定义不合法: 节点 g 类型未注册: ghost.type
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.641 s -- in com.agentflow.server.WorkflowApiE2ETests
+2026-10-19 17:37:47.080 [Thread-14] WARN  [traceId=] c.a.n.c.http.HttpClientBeanHolder - [HttpClientBeanHolder] Start destroying common HttpClient
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 36, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ server-application ---
+[INFO] Building jar: D:\source\agent-flow\server\agent-flow-server\server-application\target\server-application-0.1.0-SNAPSHOT.jar
+[INFO] 
+[INFO] --- spring-boot:3.5.6:repackage (default) @ server-application ---
+[INFO] Replacing main artifact D:\source\agent-flow\server\agent-flow-server\server-application\target\server-application-0.1.0-SNAPSHOT.jar with repackaged archive, adding nested dependencies in BOOT-INF/.
+[INFO] The original artifact has been renamed to D:\source\agent-flow\server\agent-flow-server\server-application\target\server-application-0.1.0-SNAPSHOT.jar.original
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Summary for agent-flow-server 0.1.0-SNAPSHOT:
+[INFO] 
+[INFO] agent-flow-server .................................. SUCCESS [  0.557 s]
+[INFO] platform-common .................................... SUCCESS [ 11.030 s]
+[INFO] workflow-engine .................................... SUCCESS [  6.699 s]
+[INFO] node-adapters ...................................... SUCCESS [ 20.727 s]
+[INFO] server-application ................................. SUCCESS [01:25 min]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  02:05 min
+[INFO] Finished at: 2026-10-19T17:37:51+08:00
+[INFO] ------------------------------------------------------------------------

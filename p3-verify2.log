@@ -1,0 +1,29 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< com.agentflow:server-application >------------------
+[INFO] Building server-application 0.1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for com.agentflow:platform-common:jar:0.1.0-SNAPSHOT is missing, no dependency information available
+[WARNING] The POM for com.agentflow:workflow-engine:jar:0.1.0-SNAPSHOT is missing, no dependency information available
+[WARNING] The POM for com.agentflow:node-adapters:jar:0.1.0-SNAPSHOT is missing, no dependency information available
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.017 s
+[INFO] Finished at: 2026-10-19T17:25:02+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal on project server-application: Could not resolve dependencies for project com.agentflow:server-application:jar:0.1.0-SNAPSHOT
+[ERROR] dependency: com.agentflow:platform-common:jar:0.1.0-SNAPSHOT (compile)
+[ERROR] 	Could not find artifact com.agentflow:platform-common:jar:0.1.0-SNAPSHOT
+[ERROR] dependency: com.agentflow:workflow-engine:jar:0.1.0-SNAPSHOT (compile)
+[ERROR] 	Could not find artifact com.agentflow:workflow-engine:jar:0.1.0-SNAPSHOT
+[ERROR] dependency: com.agentflow:node-adapters:jar:0.1.0-SNAPSHOT (compile)
+[ERROR] 	Could not find artifact com.agentflow:node-adapters:jar:0.1.0-SNAPSHOT
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/DependencyResolutionException

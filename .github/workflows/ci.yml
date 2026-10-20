@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/agent-flow-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build & Test（全模块，测试失败即红）
+        run: mvn -B verify
+
+      - name: 配置口径冒断言（本地默认不得开启鉴权，防止误改默认值上线）
+        run: grep -q "enabled: false" server-application/src/main/resources/application.yml
+
+      - name: 密钥泄漏扫描（禁止提交真实 key）
+        run: |
+          if grep -rEn "sk-[a-zA-Z0-9]{20,}" --include="*.yml" --include="*.json" --include="*.java" . ; then
+            echo "疑似泄漏 API Key，阻断"; exit 1
+          fi
+
+  # web-build: P4 前端工程落地后启用
+  #   needs: []
+  #   steps: checkout → setup-node 22 → pnpm install --frozen-lockfile → pnpm build
