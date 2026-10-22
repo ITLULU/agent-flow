@@ -9,6 +9,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class AgentFlowApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(AgentFlowApplication.class, args);
+        try {
+            SpringApplication.run(AgentFlowApplication.class, args);
+        } catch (RuntimeException | Error ex) {
+            // 传递依赖（nacos-client）会留非守护线程：main 抛错后 JVM 仍活着，
+            // 容器会停在 "Up 但端口永不绑定"，编排层只能靠 healthcheck 兜 ⇒ 这里显式退出。
+            System.exit(1);
+        }
     }
 }
