@@ -13,7 +13,9 @@ public record SecurityProperties(
         String apiToken,        // 服务通道（运维/内部调用），可空
         String jwtSecret,       // AGENTFLOW_JWT_SECRET；enabled=true 且为空 → 启动失败
         Duration tokenTtl,      // JWT 有效期，默认 2h
-        Integer rateLimitPerMinute, // per-principal 每分钟请求上限；显式 0=关闭限流，缺省/负数=120
+        Integer rateLimitPerMinute, // 登录用户与服务通道各自的每分钟上限；显式 0=关掉整套限流，缺省/负数=120
+        Integer rateLimitAuthPerMinute,      // /api/auth/** 单独阈值（按客户端 IP 分桶），与业务桶互不挤占
+        Boolean trustForwardedFor,           // 只在服务前面有可信反代时打开：取 XFF 第一个值当客户端 IP
         String masterKey,           // AGENTFLOW_MASTER_KEY（base64 32B）；生产仍只从 env 注入，进属性仅为测试可覆盖
         String bootstrapAdminUsername,  // AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME：启动时创建/保留的管理员账号；空=不引导
         String bootstrapAdminPassword   // AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD：只在创建新账号时使用，永不打印
@@ -40,6 +42,12 @@ public record SecurityProperties(
         }
         if (rateLimitPerMinute == null || rateLimitPerMinute < 0) {
             rateLimitPerMinute = 120;
+        }
+        if (rateLimitAuthPerMinute == null || rateLimitAuthPerMinute < 0) {
+            rateLimitAuthPerMinute = 30;
+        }
+        if (trustForwardedFor == null) {
+            trustForwardedFor = false;
         }
     }
 }

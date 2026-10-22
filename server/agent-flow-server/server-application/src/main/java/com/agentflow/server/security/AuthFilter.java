@@ -51,7 +51,7 @@ public class AuthFilter extends OncePerRequestFilter {
             principal = new Principal(Principal.SYSTEM_UID, "system", Principal.ROLE_ADMIN);
         } else if (isWhitelisted(request)) {
             // 白名单只有注册/登录/健康探针，它们不需要管理员；给匿名角色，避免前缀匹配被拿去当跳板
-            principal = new Principal(Principal.SYSTEM_UID, "anonymous", "anonymous");
+            principal = new Principal(Principal.SYSTEM_UID, "anonymous", Principal.ROLE_ANONYMOUS);
         } else {
             principal = authenticate(request);
             if (principal == null) {

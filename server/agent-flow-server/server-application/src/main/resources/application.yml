@@ -44,7 +44,9 @@ agentflow:
     jwt-secret: ${AGENTFLOW_JWT_SECRET:}   # enabled=true 且此值为空 → 启动自检 fail-fast；本地 false 时可用 dev fallback
     master-key: ${AGENTFLOW_MASTER_KEY:}   # 凭证库 AES-GCM 主密钥（base64 32B）；缺失时凭证库报 A0400，其它功能不受影响
     token-ttl: 2h                          # JWT 有效期
-    rate-limit-per-minute: 120             # per-principal 固定窗限流；显式 0=关闭（仅 enabled=true 生效）
+    rate-limit-per-minute: 120             # 登录用户/服务通道各自的每分钟上限；显式 0=关掉整套限流（仅 enabled=true 生效）
+    rate-limit-auth-per-minute: 30         # /api/auth/** 独立阈值，按客户端 IP 分桶：刷登录不能再拖垮服务通道与业务桶
+    trust-forwarded-for: false             # 只有前面有会覆盖该头的可信反代时才打开，否则匿名桶会被伪造 XFF 绕过
     # 管理员只由运维显式注入（P7-2a：注册接口永不授予 admin，避免"谁先注册谁接管"）
     bootstrap-admin-username: ${AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME:}
     bootstrap-admin-password: ${AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD:}   # 生产建议走 *_FILE 秘密注入

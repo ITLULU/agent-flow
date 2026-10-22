@@ -46,7 +46,9 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `agentflow.security.jwt-secret` | `${AGENTFLOW_JWT_SECRET:}`（空） | env 注入 ≥32B；enabled=true 且未配 → 启动即失败（fail-fast）；prod 必配 |
 | `agentflow.security.master-key` | `${AGENTFLOW_MASTER_KEY:}`（空） | env 注入 base64(32B)；凭证库 AES-GCM 主密钥；未配时凭证 API 报 A0400，其余功能不受影响 |
 | `agentflow.security.token-ttl` | `2h` | JWT 有效期；prod 可改短，改后需同步前端刷新策略 |
-| `agentflow.security.rate-limit-per-minute` | `120` | per-用户每分钟固定窗；`0`=关闭；多实例部署时需改网关/Redis 计数（已记账） |
+| `agentflow.security.rate-limit-per-minute` | `120` | 登录用户（per-uid）与服务通道（独立 `svc` 桶）各自的每分钟固定窗上限；`0`=关掉整套限流；多实例部署时需改网关/Redis 计数（已记账） |
+| `agentflow.security.rate-limit-auth-per-minute` | `30` | `/api/auth/**`（注册/登录）单独阈值，**按客户端 IP 分桶**。拆桶原因：原先匿名与服务通道同挤 uid=0 一个桶，刷登录接口就能把两者一起打满（评审 P6 #6） |
+| `agentflow.security.trust-forwarded-for` | `false` | 打开后才用 `X-Forwarded-For` 第一段当客户端 IP。**只有前面那层反代会覆盖该头时才能开**，否则攻击者伪造 XFF 即可绕开 IP 桶；不开时全部来源都算反代 IP，auth 桶会退化成单桶 |
 | `agentflow.schedule.tick-ms` | `15000` | cron 扫描节拍；测试/多实例调大避免抢发 |
 | `spring.datasource.url`（默认 profile） | `jdbc:h2:file:./data/agentflow;MODE=PostgreSQL;...` | 本地不改；删 `data/*.mv.db` 即重建库 |
 | `spring.datasource.*`（prod profile） | `${DB_URL}/${DB_USER}/${DB_PASSWORD}` | 云服务器 env 注入 PG16，禁止写死 |
