@@ -43,6 +43,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 四件套口径：
  * - 超时：引擎层 60s；微信 API 正常 <3s，超时即异常态。
  * - 重试：2 次；token 失效(errcode 40001/42001)会先清缓存再抛，重试自然走新 token。
+ *           例外：引擎级超时（draft/add 已发出但结果不可知）后不再重试——本节点已声明 hasSideEffects，
+ *           重试等于同一篇稿子发两次（评审 P6 #7，由 WechatDraftTimeoutTest 用真 HTTP 桩钉住）。
  * - 异常：errcode 40013/40125 等凭证错误→A0400（重试无意义）；-1 系统繁忙→C0002；其余非零→C0003；连接/超时同三分类。
  * - 降级：不覆盖 degrade——发半截/发错内容比不发更糟，失败必须显性 FAILED 让人工介入。
  *
@@ -96,6 +98,11 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
     @Override
     public Duration timeout() {
         return Duration.ofSeconds(60);
+    }
+
+    @Override
+    public boolean hasSideEffects() {
+        return true; // 真实创建草稿/付费出图：引擎超时后无法判定对端是否已收到，重试=重复发布/重复扣费
     }
 
     @Override

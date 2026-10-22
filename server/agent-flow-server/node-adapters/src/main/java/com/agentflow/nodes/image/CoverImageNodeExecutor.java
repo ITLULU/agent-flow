@@ -66,6 +66,11 @@ public class CoverImageNodeExecutor implements NodeExecutor {
     }
 
     @Override
+    public boolean hasSideEffects() {
+        return true; // 真实创建草稿/付费出图：引擎超时后无法判定对端是否已收到，重试=重复发布/重复扣费
+    }
+
+    @Override
     public RetryPolicy retryPolicy() {
         return RetryPolicy.noRetry(); // 防重复计费，勿改
     }

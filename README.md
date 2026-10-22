@@ -68,6 +68,7 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 - **只用 Spring AI（+ Alibaba）做模型层**，不引 LangChain4j——编排层已自研 DAG，LangGraph 类抽象与之正面冲突；且其 Java 侧（langgraph4j）为非官方社区移植，违反"禁单点社区依赖"纪律。2026-10 核查：Spring AI 1.0.x/1.1.x/2.0 三线活跃发版，"停维"传言不成立。
 - **模型层可替换缝**：节点只依赖纯 Java 接口 `LlmGateway`，Spring AI 仅是其实现 `SpringAiLlmGateway`——换 SDK 成本封顶在单个实现类，引擎/DSL/日志零改动。
 - **编排为自研 DAG 引擎**（JSON DSL + `NodeExecutor` SPI），节点四件套契约：超时/捕获/降级/重试，降级必须带 `degraded=true` 显性标志。
+- **超时 = 放弃等待 + 中断，不是"发第二条请求"**：`orTimeout` 只让 future 变异常，引擎会中断仍在跑的工作线程；声明 `hasSideEffects()` 的节点（`wechat.draft` / `xhs.draft` / `image.wanxiang` / `image.cover`）在"结果不可知的超时"后**不再重试**，失败理由固定带一句"副作用结果不可知…请人工核对"。真 HTTP 桩测试 `WechatDraftTimeoutTest` 钉住一次执行只允许 1 个 `draft/add`。
 - **规模判断**：100 QPS 峰值 → 模块化单体 + 虚拟线程执行池，不上微服务/消息队列；PG 为生产库（prod profile），本地默认 profile 不依赖任何中间件。
 - **traceId 口径**：入口过滤器生成或透传（`X-Trace-Id`），进 MDC、进结构化响应体，请求级 RT 以此为唯一统计口径。
 - **创作流水线节点集（P4A）**：`hotspot.fetch`（四源热榜，合并去重、整体不可用降级）→ `article.extract`（链接取正文，自动抽标题）→ `copy.write`（`mode=xiaohongshu|wechat`，按【标记】分节解析出标题/摘要/标签/金句/封面文案）→ `image.cover`（比例预设或任意 `a:b`，长边 1024 折算、边长 512–1440；失败降级为无图）→ `publish.local`（成品库 `article.md`/`note.txt` + `meta.json` + `assets/`）→ `xhs.draft` / `wechat.draft`（发布通道永不静默降级）。

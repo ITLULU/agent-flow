@@ -32,4 +32,14 @@ public interface NodeExecutor {
     default Optional<NodeOutput> degrade(NodeInput input, Throwable lastError) {
         return Optional.empty();
     }
+
+    /**
+     * 该节点会留下外部不可逆副作用（发草稿、付费出图等）。
+     * 引擎据此在"结果不可知的引擎级超时"后放弃重试：此时对端可能已经收到请求，
+     * 重试等于同一篇内容发两次 / 同一张图扣两次费（评审 P6 #7）。
+     * 纯读取类节点保持默认 false，继续享受重试。
+     */
+    default boolean hasSideEffects() {
+        return false;
+    }
 }

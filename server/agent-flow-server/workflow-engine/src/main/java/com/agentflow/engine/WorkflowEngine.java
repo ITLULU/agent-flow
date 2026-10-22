@@ -22,10 +22,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +40,10 @@ import org.slf4j.LoggerFactory;
 public class WorkflowEngine {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowEngine.class);
+
+    /** 副作用节点超时后写进错误信息的口径：让"可能已经发出去了"变成执行日志里看得见的事实，而不是靠人猜。 */
+    public static final String SIDE_EFFECT_NOTE =
+            "｜副作用结果不可知：请求可能已到达对端（草稿可能已创建、费用可能已扣），已放弃重试并中断任务，请人工核对";
 
     private final NodeRegistry registry;
     private final ExecutionLogStore store;
@@ -73,17 +80,21 @@ public class WorkflowEngine {
             Throwable lastError = null;
             NodeOutput output = null;
             int usedAttempts = 0;
+            boolean outcomeUnknown = false;
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 usedAttempts = attempt;
                 try {
                     output = executeOnce(executor, input, ctx, traceId);
                     lastError = null;
+                    outcomeUnknown = false;
                     break;
                 } catch (Throwable t) {
                     lastError = unwrap(t);
-                    log.warn("[traceId={}] 节点 {} 第 {} 次尝试失败: {}", traceId, nodeId, attempt, brief(lastError));
-                    if (!isRetryable(lastError) || attempt == maxAttempts) {
+                    outcomeUnknown = executor.hasSideEffects() && isOutcomeUnknown(lastError);
+                    log.warn("[traceId={}] 节点 {} 第 {} 次尝试失败: {}{}", traceId, nodeId, attempt, brief(lastError),
+                            outcomeUnknown ? "（该节点有外部副作用，结果不可知 ⇒ 不再重试）" : "");
+                    if (!isRetryable(lastError) || attempt == maxAttempts || outcomeUnknown) {
                         break;
                     }
                     sleepQuietly(executor.retryPolicy().firstBackoffMs() * (1L << (attempt - 1)));
@@ -109,7 +120,7 @@ public class WorkflowEngine {
                     log.warn("[traceId={}] 节点 {} 走降级路径继续执行: {}", traceId, nodeId, d.degradeReason());
                 } else {
                     NodeRunResult r = new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.FAILED, usedAttempts, durationMs,
-                            Map.of(), brief(lastError));
+                            Map.of(), brief(lastError) + (outcomeUnknown ? SIDE_EFFECT_NOTE : ""));
                     results.add(r);
                     store.appendNodeLog(executionId, r);
                     store.finish(executionId, ExecutionStatus.FAILED.name());
@@ -125,17 +136,40 @@ public class WorkflowEngine {
     }
 
     private NodeOutput executeOnce(NodeExecutor executor, NodeInput input, ExecutionContext ctx, String traceId) {
+        // orTimeout 只让 future 变异常，节点任务仍在虚拟线程上继续跑；不记线程、不中断，
+        // 它就会在执行早已判为 FAILED 之后把草稿真发出去、把图真扣费（评审 P6 #7）。
+        AtomicReference<Thread> worker = new AtomicReference<>();
         CompletableFuture<NodeOutput> future = CompletableFuture
                 .supplyAsync(() -> {
+                    worker.set(Thread.currentThread());
                     TraceIdUtils.put(traceId); // 虚拟线程不继承 MDC，手工钉入保证节点内日志可关联
                     try {
                         return executor.execute(input, ctx);
                     } finally {
+                        worker.set(null);
                         TraceIdUtils.clear();
                     }
                 }, nodePool)
                 .orTimeout(executor.timeout().toMillis(), TimeUnit.MILLISECONDS);
-        return future.join();
+        try {
+            return future.join();
+        } catch (RuntimeException | Error abandoned) {
+            Thread running = worker.getAndSet(null);
+            if (running != null) {
+                running.interrupt();
+            }
+            throw abandoned;
+        }
+    }
+
+    /**
+     * "结果不可知"仅指引擎侧放弃等待的三种：等待超时、任务被中断、future 被取消。
+     * 节点自己按对端错误码分类出来的失败（如微信 errcode=-1 系统繁忙）不在此列——
+     * 那是"对端明确告诉你没做成"，照常重试才符合各节点已单测钉住的语义。
+     */
+    private boolean isOutcomeUnknown(Throwable t) {
+        return t instanceof TimeoutException || t instanceof InterruptedException
+                || t instanceof CancellationException;
     }
 
     /** 分类：入参/权限/定义类错误重试无意义，直接失败；其余（含超时、IO、UPSTREAM_*）按策略重试。 */
