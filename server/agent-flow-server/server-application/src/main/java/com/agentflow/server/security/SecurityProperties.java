@@ -14,7 +14,9 @@ public record SecurityProperties(
         String jwtSecret,       // AGENTFLOW_JWT_SECRET；enabled=true 且为空 → 启动失败
         Duration tokenTtl,      // JWT 有效期，默认 2h
         Integer rateLimitPerMinute, // per-principal 每分钟请求上限；显式 0=关闭限流，缺省/负数=120
-        String masterKey        // AGENTFLOW_MASTER_KEY（base64 32B）；生产仍只从 env 注入，进属性仅为测试可覆盖
+        String masterKey,           // AGENTFLOW_MASTER_KEY（base64 32B）；生产仍只从 env 注入，进属性仅为测试可覆盖
+        String bootstrapAdminUsername,  // AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME：启动时创建/保留的管理员账号；空=不引导
+        String bootstrapAdminPassword   // AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD：只在创建新账号时使用，永不打印
 ) {
 
     public SecurityProperties {
@@ -26,6 +28,12 @@ public record SecurityProperties(
         }
         if (masterKey == null) {
             masterKey = "";
+        }
+        if (bootstrapAdminUsername == null) {
+            bootstrapAdminUsername = "";
+        }
+        if (bootstrapAdminPassword == null) {
+            bootstrapAdminPassword = "";
         }
         if (tokenTtl == null) {
             tokenTtl = Duration.ofHours(2);

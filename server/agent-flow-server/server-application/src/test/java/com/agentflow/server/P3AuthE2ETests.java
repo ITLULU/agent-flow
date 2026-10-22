@@ -17,7 +17,7 @@ import org.springframework.http.ResponseEntity;
 
 /**
  * P3 鉴权与归属隔离 e2e：注册→登录→带 token 建流→跨用户 404→过期/无 token 401。
- * 方法顺序固定（首个注册者必须是 admin 的引导语义依赖插入次序）。
+ * 本类不配 bootstrap 账号，用来钉住"注册永不给 admin"（P7-2a）。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -64,10 +64,10 @@ class P3AuthE2ETests {
 
     @Test
     @Order(1)
-    void firstRegistrantBecomesAdminSecondIsUser() {
+    void firstRegistrantIsPlainUserToo() {
         String root = registerAndLogin("p3root");
         assertThat(root).isNotBlank();
-        // 引导语义可观测：注册响应里首用户 role=admin（表空判定在 register 内完成）
+        // P7-2a：表空时注册也只给 user——"谁先注册谁当管理员"不能出现在公网形态
         ResponseEntity<String> r2 = post("/api/auth/register",
                 "{\"username\":\"p3alice\",\"password\":\"passw0rd-123\"}", null);
         assertThat(r2.getBody()).contains("\"role\":\"user\"");

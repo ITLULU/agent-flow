@@ -25,7 +25,7 @@ class AuthFilterTest {
 
     private SecurityProperties props(boolean enabled) {
         return new SecurityProperties(enabled, "svc-token", "filter-test-secret-at-least-32-chars!!",
-                Duration.ofHours(2), 120, "");
+                Duration.ofHours(2), 120, "", "", "");
     }
 
     private MockHttpServletResponse run(AuthFilter filter, String uri, String authHeader, String svcHeader,

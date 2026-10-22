@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -49,7 +50,16 @@ public class StartupSelfCheck implements ApplicationRunner {
         log.info("llm api-key present          : {}", !nodeProps.llm().apiKey().isBlank());
         log.info("image api-key present        : {}", !nodeProps.image().apiKey().isBlank());
         log.info("content library dir          : {}", checkLibrary());
-        // P3 硬基线：开鉴权必须配 JWT 密钥——缺密钥的"开鉴权"等于把所有请求关在门外或全部放行，两者都不可接受
+    }
+
+    /**
+     * P3 硬基线：开鉴权必须配 JWT 密钥——缺密钥的"开鉴权"等于把所有请求关在门外或全部放行，两者都不可接受。
+     * P7-2b：这条检查必须在**端口绑定之前**发生。放在 ApplicationRunner 里时，进程已经 listen 在 8080
+     * 上、外部能连上又立刻失败（compose 的 healthcheck 与滚动发布都会看到这个"活着但必然拒服务"的窗口），
+     * 而单例初始化早于 ServletWebServer 的 start()，所以 @PostConstruct 才是正确的时机。
+     */
+    @PostConstruct
+    void enforceSecurityBaseline() {
         if (securityProps.enabled() && securityProps.jwtSecret().isBlank()) {
             throw new IllegalStateException("security.enabled=true 但未配置 AGENTFLOW_JWT_SECRET（fail-fast，禁止默认密钥上线）");
         }

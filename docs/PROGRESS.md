@@ -78,7 +78,7 @@
 - JWT 自实现（Mac HmacSHA256+Base64URL）：验签必拒 alg=none/异 alg/篘改（MessageDigest.isEqual 恒时比较）；密钥 `AGENTFLOW_JWT_SECRET` env，enabled=true 且密钥空 → 启动即失败（fail-fast）。
 - 口令 PBKDF2WithHmacSHA256（120k 次，随机 16B 盐），存储格式 `pbkdf2$sha256$iter$salt$hash`，验证恒时。
 - 凭证库 AES-256-GCM，主密钥 `AGENTFLOW_MASTER_KEY`（base64 32B）；每条记录随机 12B IV 前缀入密文；GET 永不回显明文；未配主密钥时凭证 API 报 A0400 配置错、其它功能不受影响。
-- 首个注册用户 role=admin；enabled=false 时以系统匿名主体（uid=0, admin）通行，兼容存量 P1/P2 e2e。
+- ~~首个注册用户 role=admin~~（P3 原设计）→ **P7-2a 已改**：注册接口**永不**授予 admin，管理员只由运维显式注入的 bootstrap 账号产生；`enabled=false` 时以系统匿名主体（uid=0, admin）通行，兼容存量 P1/P2 e2e。
 - 归属隔离：workflow.owner_id；非属主读取/触发一律 404（防资源探测）。
 - cron：`CronExpression` 6 段；落库 next_fire_at，CAS UPDATE 领发后才 submit（重启不重复；单实例假设，多实例需分布式锁→容量阶段记账）。
 - 限流：per-principal 每分钟固定窗（默认 120，0=关），超限 A0429 + Retry-After；内存态单实例（多实例切网关/Redis，记账）。
@@ -115,7 +115,7 @@ LogicFlow 2.x 编排画布 ↔ DSL JSON 双向映射、参数面板、执行日�
 | 任务 | 状态 | 完结 | 证据 DoD |
 |---|---|---|---|
 | P5-1 Dockerfile 多阶段 + 非 root 运行 | ✅ | 10-22 00:48 | `server/agent-flow-server/Dockerfile`（maven+JDK21 构建 → temurin 21-jre 运行，UID 10001）+ `.dockerignore` |
-| P5-2 秘密垫片入口（`*_FILE` → env） | ✅ | 10-22 00:48 | `deploy/docker-entrypoint.sh` 白名单读取 5 个 `*_FILE`（实测：通用 `*_FILE` 循环会误吞无关环境变量，已改白名单）；`deploy/gen-secrets.sh` 生成本机秘密（base64(32B) 主密钥 / 48B JWT，权限 600，目录 700） |
+| P5-2 秘密垫片入口（`*_FILE` → env） | ✅ | 10-22 00:48 | `server/agent-flow-server/deploy/docker-entrypoint.sh` 白名单读取 `*_FILE`（实测：通用 `*_FILE` 循环会误吞无关环境变量，已改白名单）；本机秘密生成脚本随 compose 一起放在 `SpringCloudAdmin/docker-compose/agent-flow/gen-secrets.sh`（原 `agent-flow/deploy/gen-secrets.sh` 已随目录删除，见 19:24 变更日志）——base64(32B) 主密钥 / 48B JWT，权限 600，目录 700 |
 | P5-3 compose server 段启用 | ✅ | 10-22 00:52 | `docker compose config` 通过；`read_only: true` + `cap_drop ALL` + `no-new-privileges` + tmpfs /tmp（用 `-Duser.home=/nonexistent-home` 实测应用零写盘，只写 library 卷）；`stop_grace_period` 与 graceful shutdown 对齐 |
 | P5-4 prod 镜像实机起服（PG + server 容器） | ✅ | 10-22 01:33 | `docker compose up -d --build` 起 pgvector/pg16 + server：Flyway 3 条迁移在 **PostgreSQL 16.15** 全部 success（`artifact/execution/execution_node_log/user_credentials/users/workflow` 7 表）；启动 2.6s，自检 `profiles=[prod] / security.enabled=true / master-key✔ / jwt✔ / library=/app/data/library(writable)`；真机链路：注册→登录→建流→触发出 `SUCCESS`（a/b 两节点各 1 次尝试）→ `execution_node_log` 落库→非法 cron A0400 / DELETE 撤调度；边界 401/`A0405`/`A0400`/限流 `A0429`（120/min 后第 131 次）全部按码返回；`docker compose stop` 1s 内 `Graceful shutdown complete` + Hikari 干净关闭；重启后数据与调度状态保留（卷持久 + `read_only` 根盘） |
 | P5-6 缺陷修复：`*_FILE` 空秘密把容器打进重启循环 | ✅ | 10-22 01:20 | 实机首起 `server-1 Restarting`：`deploy/docker-entrypoint.sh` 对 0 字节占位秘密（bailian/wechat 未配 key）`FATAL exit 1`。修：空文件按"未配置"WARN + unset，与"空凭证不阻塞启动、执行期报 A0400"口径一致（fail-fast 仍由 StartupSelfCheck/凭证 API 兜住）；`deploy/maven-settings.xml` 挂进构建层（bind 挂载不进镜像），容器内 Maven 走阿里云公共仓，单次构建从十分钟级回到 ~90s |
@@ -134,7 +134,7 @@ LogicFlow 2.x 编排画布 ↔ DSL JSON 双向映射、参数面板、执行日�
 
 P5 实机演练已把这四项带上议程（都是探到的真问题，不是假设）：
 
-1. **首个注册用户即 admin**：容器实测 `POST /api/auth/register` 的第一个账号拿到 `role=admin`。冷启动需要 bootstrap 账号，但"谁先注册谁当管理员"暴露在公网上就是提权路径 → 评审结论应为：改为 env 显式注入 bootstrap 账号 / 或注册接口在已有 admin 时禁止 self-assign admin。
+1. **首个注册用户即 admin**（✅ 已于 P7-2a 收敛）：容器实测 `POST /api/auth/register` 的第一个账号拿到 `role=admin`。冷启动需要 bootstrap 账号，但"谁先注册谁当管理员"暴露在公网上就是提权路径 → 评审结论应为：改为 env 显式注入 bootstrap 账号 / 或注册接口在已有 admin 时禁止 self-assign admin。**实际两版都做了**：注册一律 `user`，管理员只由 `AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME/PASSWORD` 注入，见 §P7-2。
 2. **nacos-client 是未使用的传递依赖**：fat jar 里躺着 `nacos-client-2.4.2.jar`（7.8MB）+ `spring-alibaba-nacos-config`，本项目不接 Nacos。启动残余 1 条 ERROR（`AliyunConfigFilter region is not set`）来自它。选项：在 dashscope starter 上 `<exclusions>`（需真 key 的 E2E 回归护航），或接受噪声并留档。
 3. **多实例硬约束**：限流是单进程内存固定窗、cron 领发靠 DB CAS 但没有分布式幂等键；README 已钉死"单实例假设"，上多实例前必须给方案（网关计数 / Redis 固定窗）。
 4. **`nextFireAt` 返回值形状**：现在是 `ZonedDateTime.toString()` → `"2026-10-22T01:35+08:00[Asia/Shanghai]"`，带方括号 zone 的字符串不适合作对外契约，评审后统一成 ISO-8601 瞬时（`2026-10-21T17:35:00Z`）。
@@ -159,6 +159,20 @@ P5 实机演练已把这四项带上议程（都是探到的真问题，不是�
 **P7-1 未包含**：评审 #5 密钥 fail-fast 时机、#6 匿名限流桶、#7 TIMEOUT 僵尸副作用、#8 抢注即接管、#9 备份与恢复演练（🔶 全部仍在 P7-2）；#10–#17（⚠️）在 P7-3 及档位演进时兑现。**评审"对外 NO-GO"决议不因本轮修复自动改变**。
 
 ---
+## P7-2 前两项 🔶 修复（🟡 进行中 2026-10-22 21:30：a/b 已完成并回归，c–e 待排期）
+
+全量 `mvn -B -o clean verify` **196 测试 0 失败**（13/13/121/49，基线 192 +4 新增，BUILD SUCCESS 23.0s）。
+**环境坑（本轮踩到，留档）**：本机 `~/.zshrc` 默认 `JAVA_HOME=$JDK8_HOME`，agent 的非交互 shell 会继承它 ⇒ `mvn` 用 JDK 8 的 javac 编译，在 `platform-common/.../ApiResponse.java:10` 报一串"需要 class, interface 或 enum"（record 关键字不识别），看着像源码被写坏。**必须** `export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home` 再跑；`/usr/libexec/java_home` 在本机没有注册任何 JDK，不能靠它。
+
+| 项 | 状态 | 时间 | 证据与取舍 |
+|---|---|---|---|
+| P7-2a 注册永不授 admin + env 引导管理员 | ✅ | 10-22 21:10 | `AuthService.register()` 去掉 `users.count()==0 ? ROLE_ADMIN : "user"`，恒写 `user`（[AuthService.java:42](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/java/com/agentflow/server/security/AuthService.java#L42)）；管理员改由新的 `AdminBootstrap`（`ApplicationRunner`）按 `AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME` + `..._PASSWORD`(`_FILE`) 创建：用户名已存在→只 log 不改动（幂等重启安全）、口令缺失→按未配置 WARN、口令长度越界→**拒绝启动**（`IllegalStateException`，不让半套管理员上线）。取舍：**没有兜底管理员**——bootstrap 未配置时系统里 0 个管理员，需要运维显式补配再重启，宁可冷启动多一步也不留"抢注即接管"的口子。部署面同步：`docker-entrypoint.sh` 白名单加 `AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD`（`*_FILE` 垫片）、compose 加 env + `secrets/bootstrap_admin_password`、`gen-secrets.sh` 生成 0 字节占位。测试：`P7AdminBootstrapE2ETests` 3/3（bootstrap 账号拿到 `role":"admin"`；同表注册第二个账号是 `user` 且短口令 A0400；admin 读他人工作流 200 而局外人 A0404）+ `P3AuthE2ETests` 4/4（本类**不配** bootstrap，钉住"表空注册仍为 user"）+ `AuthFilterTest` 7/7（`SecurityProperties` record  widened 后构造点同步） |
+| P7-2b 密钥 fail-fast 前移到端口绑定之前 | ✅ | 10-22 21:20 | `StartupSelfCheck` 的 `enabled=true && jwt-secret 为空` 校验从 `run()` 移到 `@PostConstruct enforceSecurityBaseline()`（[StartupSelfCheck.java:61](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/java/com/agentflow/server/startup/StartupSelfCheck.java#L61)）——eager 单例在 `finishBeanFactoryInitialization` 初始化，早于 `finishRefresh()` 里 `WebServerStartStopLifecycle` 绑定端口。**没有**选 `EnvironmentPostProcessor`：它看不到 `SecurityProperties` 的绑定结果，等于把同一份规则写两遍。**反向验证**：`P7FailFastTimingTests` 起一个 RANDOM_PORT 实例、`--agentflow.security.jwt-secret=` 空值，断言①启动抛错且异常链含 `AGENTFLOW_JWT_SECRET`，②`new Socket().connect(loopback, port)` **被拒**（端口从未可服务）。踩坑留档：`SpringApplicationBuilder.properties()` 是 defaultProperties，优先级低于 `application.yml`，第一次跑被 yml 里的密钥覆盖成"启动成功"；改用命令行 `--key=value` 才真正注入。注意 prod+`enabled=false` 仍是 `log.error` 不拒启（保留本地跑测口径），与评审建议的差异已在此显式记录 |
+| P7-2c 指标抓取身份 | ⛔ 待拍板 | — | 见任务 #20：`/actuator/prometheus` 401、prod 无 `AGENTFLOW_API_TOKEN` ⇒ Prometheus 现抓不到。两个方案（scraper 专用 token vs 内网白名单）都动安全边界，需用户选 |
+| P7-2d 匿名限流桶 / TIMEOUT 僵尸副作用 / 备份恢复演练 | ⛔ 未开始 | — | 评审 #6/#7/#9，各 0.5–1 人日；#7 会在真出图链路上重复扣费，建议排在真 key 联调之前 |
+| P7-2e 容器形态复验 | 🟡 进行中 | — | 镜像 `agentflow/server:0.1.0` 重建后按"空 bootstrap 秘密 ⇒ 0 管理员 + 注册仍 user"与"故意清空 `AGENTFLOW_JWT_SECRET_FILE` ⇒ 容器失败且 8080 连不上"两条反向用例复核 |
+
+---
 ## 变更日志
 - 2026-10-19 11:28 台账创建；P0 九项回填完成；P1 启动。
 - 2026-10-19 13:47 P1 七项全部完成并回写证据；26 测试全绿；下一步 P2。
@@ -177,3 +191,8 @@ P5 实机演练已把这四项带上议程（都是探到的真问题，不是�
 - 2026-10-22 16:55 部署收敛：agent-flow 的 compose 迁到 `SpringCloudAdmin/docker-compose/agent-flow/docker-compose.yml`（与 mysql/qdrant 同构、同挂 `my-custom-network`），原 agent-flow 仓库根目录的 compose 已删除（git 可恢复），全仓只留这一套。运行栈已切换：容器 `agent-flow-server` / `agent-flow-db`，数据落 compose 同目录 `data/pg`、`data/library`；旧命名卷 `agent-flow_pgdata` / `agent-flow_library` 保留作回滚。README §1/§5、`deploy/gen-secrets.sh` 注释、SpringCloudAdmin 部署手册 §七 已同步。
 - 2026-10-22 19:24 部署目录彻底解耦：compose 去掉 `build:`（改为只消费 `agentflow/server:0.1.0`），秘密从 `agent-flow/deploy/secrets/` 整体迁到 `SpringCloudAdmin/docker-compose/agent-flow/secrets/`（600/700，值不变以匹配现有 PG 卷），原 `agent-flow/deploy/` 目录已删除，本地新增自包含 `gen-secrets.sh` + `.gitignore`（忽略 `data/`、`secrets/`）。`--force-recreate` 后 `docker inspect` 确认 6 个秘密与 `data/library`、`data/pg` 全部来自 compose 目录；readiness 200、Flyway 3、users 0。README §5 与部署手册 §七 改为"先在本仓库 `docker build`，再在 compose 目录 `gen-secrets.sh` + `up -d`"。
 - 2026-10-22 20:50 阶段验收复核（不改代码，只取证）：全量 `mvn -B -o verify` **192 测试 0 失败**（13/13/121/45，与 P7-1 基线持平，BUILD SUCCESS 23.9s）；容器 `agent-flow-server`/`agent-flow-db` 均 healthy，liveness/readiness 200、`/actuator/prometheus` 401（抓取凭证缺口复现）、prod 库 users/workflow/execution 全 0、迁移 3；镜像 16:15 构建且 `find server -name '*.java' -newermt '16:15'` 为 0 ⇒ 运行态=已验证代码。**进度判定：计划 §7 六阶段里 P0/P1/P2/P3/P5 ✅、P4A 插队目标 ✅、P4 前端画布 ⛔ 未开工（无 `web/` 目录）；P6 评审 ✅、P7-1 ✅、P7-2/P7-3 ⛔。** 新发现两条交付级问题：① `git status` 58 个路径未提交（32 A + 24 M + 1 D），`origin/master` 仍是唯一的初始 commit，`git ls-tree -r origin/master` 中 auth/credential/creation/Dockerfile/EXPERT **命中 0** ⇒ P3 之后所有代码与文档只存在于本地工作树，**CI 从未针对当前代码跑过**，验证结论无法由他人复现；② `secrets/bailian_api_key`、`wechat_appid`、`wechat_secret` 均为 0 字节 ⇒ 生图与公众号草稿只验到 A0400 配置错边界与本地桩，"真出片"仍未验证。
+- 2026-10-22 21:05 提交落地：本机 shell 因 Datacloak ESE（DLP/Endpoint Security）拦截 `.git` 写入而 `Unable to create '.git/index.lock': Operation not permitted`，改由 agent shell 完成提交 ⇒ `e129fe5`「P3–P7-1：创作流水线、平台安全底座与容器化部署」58 文件 +5246/-105，`git status` 归零，秘密路径未入库。**推送仍被卡**：HTTPS 远端 + 钥匙串无 github.com 条目 + 本机无 `~/.ssh` ⇒ CI 依旧未针对当前代码跑过（20:50 那条①只解了一半：本地已提交，远端仍缺）。
+- 2026-10-22 21:10 P7-2a 完成：注册接口永不授 admin（`AuthService.register` 恒写 `user`），管理员改由 `AdminBootstrap` 按 `AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME/PASSWORD(_FILE)` 显式引导；未配置=系统无管理员（宁可冷启动多一步），口令长度越界=拒绝启动。部署面打通 `docker-entrypoint.sh` 白名单 + compose `secrets/bootstrap_admin_password`（0 字节占位、600）+ `gen-secrets.sh`；`P7AdminBootstrapE2ETests` 3/3、`P3AuthE2ETests` 4/4、`AuthFilterTest` 7/7。评审 §4 #8 与安全节 #1 翻 ✅。
+- 2026-10-22 21:20 P7-2b 完成 + 全量回归：fail-fast 从 `ApplicationRunner` 移到 `StartupSelfCheck.@PostConstruct`（早于端口绑定），`P7FailFastTimingTests` 用"空密钥启动 → 断言异常链 + 端口 connect 被拒"做反向验证；全量 `JAVA_HOME=$JDK21 mvn -B -o clean verify` **196 测试 0 失败**（13/13/121/49 = 基线 192 + 新增 4，BUILD SUCCESS 23.0s）。评审 §4 #5、§1.5 §9 与 bootstrap 核对表同步。
+- 2026-10-22 21:30 台账漂移修复：`PROGRESS.md` P5-2 行的 `deploy/gen-secrets.sh`（目录已删）改指 `SpringCloudAdmin/docker-compose/agent-flow/gen-secrets.sh`，P3 设计决策"首个注册用户 role=admin"与 §P6 议程第 1 项标注已被 P7-2a 推翻；镜像重建 `agentflow/server:0.1.0`（`ee91ae2d7467`）准备容器形态复验。
+

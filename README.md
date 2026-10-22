@@ -102,7 +102,7 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | Vue 画布（LogicFlow） | 未建 | P4 |
 | ~~Dockerfile / compose 中 server 服务~~ | ✅ P5 已交付（多阶段镜像 + 非 root + `read_only`/`cap_drop ALL`/`no-new-privileges` + `*_FILE` 秘密垫片）。compose 已并到 `SpringCloudAdmin/docker-compose/agent-flow`（唯一一套，my-custom-network），见第 5 节 | - |
 | nacos-client 传递依赖未使用（spring-ai-alibaba 带入，fat jar +7.8MB，启动残留 1 条 `AliyunConfigFilter region` ERROR） | 已消掉启动 ERROR 大头（`-Dnacos.logging.default.config.enabled=false`）；`spring.autoconfigure.exclude` 会让启动失败，故留待评审决定 pom exclusion | P6 |
-| 首个注册用户自动获得 admin 角色（`AuthService` 冷启动 bootstrap） | 单机自用可用；公网开放注册前必须改成 env 注入 bootstrap 账号 | P6 |
+| 管理员只由 env 注入的 bootstrap 账号产生（`AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME/PASSWORD`，P7-2a） | 注册接口永不授予 admin；留空则系统无管理员，需先配置再重启 | ✅ 已收敛 |
 | CI 实际执行 | workflow 文件已入库，需绑定 GitHub 远端后生效 | 立即（push 后） |
 | 本机内网穿透仅用于联调演示 | 10w 用户量级必须云服务器部署（4C8G 起） | 上线前 |
 
@@ -134,9 +134,12 @@ docker compose ps                   # 两个都 healthy 才算起完（server �
 curl -s localhost:8080/actuator/health/readiness          # {"status":"UP"}
 curl -s localhost:8080/api/ping                            # prod 下 security.enabled=true → A0401 才对
 docker compose logs agent-flow-server | grep -E "启动自检|Flyway|Started"
-# 第一个注册的用户拿 admin 角色（冷启动 bootstrap），先用它建号：
+# 管理员由 bootstrap 配置注入（P7-2a：注册接口永不授予 admin）——先写口令再重启起服：
+#   echo -n '<8-64位口令>' > secrets/bootstrap_admin_password
+#   AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME=<你> docker compose up -d --force-recreate
+# 之后注册出来的都是普通用户，用 bootstrap 账号登录即可建凭证/跑创作：
 curl -s -XPOST localhost:8080/api/auth/register -H 'Content-Type: application/json' \
-     -d '{"username":"<你>","password":"<8-64位>"}'
+     -d '{"username":"<普通用户>","password":"<8-64位>"}'
 # prod 下 security.enabled=true，创作脚本必须带身份：三选一（AF_TOKEN / AF_USER+AF_PASS / AGENTFLOW_API_TOKEN）
 AF_USER=<你> AF_PASS=<8-64位> scripts/run-creation.sh --mode xhs --topic "秋天适合把书一本本读完" --ratio 3:4
 ```
