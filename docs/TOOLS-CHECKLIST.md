@@ -29,7 +29,7 @@
 | 环境变量 | 来源 | 用于 |
 |---|---|---|
 | `AGENTFLOW_MASTER_KEY` | 本机 `openssl rand -hex 16` 生成 | 凭证库 AES-GCM 主密钥（P3） |
-| `AGENTFLOW_API_TOKEN` | 自定强随机串 | 阶段一 API 守卫 token（P3 后由 JWT 取代） |
+| `AGENTFLOW_API_TOKEN` | 自定强随机串 | 服务通道 token（`X-API-Token`）。P3 起业务身份改用 JWT；P7-1 起该主体 uid=0/role=ops，**不再是全站 admin**，只能碰 uid=0 名下资源 |
 | `BAILIAN_API_KEY` | 阿里云百炼控制台（你已有） | LLM 节点：qwen 系列（OpenAI 兼容 + dashscope 原生） |
 | `WANXIANG_*`（复用 BAILIAN_API_KEY） | 同上，需开通万相服务 | 生图节点异步任务 |
 | `WECHAT_APPID` / `WECHAT_APPSECRET` | 公众号后台 | 草稿发布节点；注意 IP 白名单要加**云服务器出口 IP** |

@@ -8,8 +8,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -28,6 +30,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @EnableConfigurationProperties(SecurityProperties.class)
 public class AuthFilter extends OncePerRequestFilter {
 
+    /** 免鉴权入口精确清单（新增公开端点必须在这里显式登记，不允许扩前缀）。 */
+    private static final Set<String> AUTH_WHITELIST = Set.of("/api/auth/register", "/api/auth/login");
+
     private final SecurityProperties props;
     private final JwtCodec jwtCodec;
     private final ObjectMapper objectMapper;
@@ -44,8 +49,9 @@ public class AuthFilter extends OncePerRequestFilter {
         Principal principal;
         if (!props.enabled()) {
             principal = new Principal(Principal.SYSTEM_UID, "system", Principal.ROLE_ADMIN);
-        } else if (isWhitelisted(request.getRequestURI())) {
-            principal = new Principal(Principal.SYSTEM_UID, "anonymous", Principal.ROLE_ADMIN);
+        } else if (isWhitelisted(request)) {
+            // 白名单只有注册/登录/健康探针，它们不需要管理员；给匿名角色，避免前缀匹配被拿去当跳板
+            principal = new Principal(Principal.SYSTEM_UID, "anonymous", "anonymous");
         } else {
             principal = authenticate(request);
             if (principal == null) {
@@ -80,8 +86,21 @@ public class AuthFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private boolean isWhitelisted(String uri) {
-        return uri.startsWith("/actuator/health") || uri.startsWith("/api/auth/");
+    /**
+     * 白名单用"归一化后的精确路径"而非原始 URI 前缀：路由层会规范化 ../ 与 %-编码，前缀匹配会让
+     * `/api/auth/../workflows` 这类路径在过滤器上当匿名放行、到 Spring 却命中受保护的业务端点。
+     */
+    private boolean isWhitelisted(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri.startsWith("/actuator/health")) {
+            return true; // 探针只读，且 show-details=never
+        }
+        try {
+            String normalized = URI.create(uri).normalize().getPath();
+            return AUTH_WHITELIST.contains(normalized);
+        } catch (IllegalArgumentException e) {
+            return false; // 非法 URI 一律走鉴权，不在这里猜
+        }
     }
 
     private void reject(HttpServletResponse response) throws IOException {

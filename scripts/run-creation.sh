@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# 创作流水线一键驱动：热点/链接/话题 → 文案 → 指定比例主图 → 本地归档 → 草稿发布 → 成品下载。
+# 依赖：curl + jq。示例见文件末尾 usage。
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8080}"
+MODE="xhs"                 # xhs | wechat
+SOURCE="auto"              # auto | hot | link | topic
+TOPIC=""
+URL=""
+RATIO=""
+LENGTH=""
+AUDIENCE=""
+TONE=""
+EXTRA=""
+ILLUSTRATIONS=0
+PUBLISH="auto"             # auto | local | none
+CRED=""
+OUT_DIR="./creation-out"
+DRY_RUN=0
+
+usage() {
+    cat <<'EOF'
+用法: scripts/run-creation.sh [选项]
+
+  --mode xhs|wechat     创作渠道（默认 xhs）
+  --topic "..."         主题/想法；省略时自动取上游热点标题或文章标题
+  --url "https://..."   输入一篇公众号文章/任意链接（SOURCE 自动为 link）
+  --source hot|link|topic  取数方式（默认 auto：有 --url 走 link，有 --topic 走 topic，否则 hot）
+  --ratio 3:4|1:1|...   主图比例，支持预设名（xhs/landscape/story/banner/wechat-share/wechat-small）或 a:b
+  --length 1200         正文字数（wechat 默认 1500 / xhs 默认 600）
+  --audience/--tone/--extra  目标读者 / 语气风格 / 补充要求
+  --illustrations 2     额外配图张数（image.cover kind=illustration）
+  --publish auto|local|none  auto=xhs 走 xhs.draft、wechat 走 wechat.draft
+  --credential-id 12    公众号凭证库 id（微信通道建议用库凭证而非环境变量）
+  --out ./creation-out  成品下载目录
+  --dry-run             只打印提交的 DSL，不落库不执行
+
+鉴权（三选一）：
+  AF_TOKEN=xxxx         直接注入 JWT
+  AF_USER=xx AF_PASS=xx 脚本自动登录取 JWT
+  两者都不给            依赖 agentflow.security.enabled=false（本地默认）或 X-API-Token
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode) MODE=$2; shift 2 ;;
+        --topic) TOPIC=$2; shift 2 ;;
+        --url) URL=$2; shift 2 ;;
+        --source) SOURCE=$2; shift 2 ;;
+        --ratio) RATIO=$2; shift 2 ;;
+        --length) LENGTH=$2; shift 2 ;;
+        --audience) AUDIENCE=$2; shift 2 ;;
+        --tone) TONE=$2; shift 2 ;;
+        --extra) EXTRA=$2; shift 2 ;;
+        --illustrations) ILLUSTRATIONS=$2; shift 2 ;;
+        --publish) PUBLISH=$2; shift 2 ;;
+        --credential-id) CRED=$2; shift 2 ;;
+        --out) OUT_DIR=$2; shift 2 ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "未知参数: $1" >&2; usage; exit 2 ;;
+    esac
+done
+
+command -v jq >/dev/null || { echo "需要 jq：brew install jq 或用 /usr/bin/jq" >&2; exit 1; }
+
+case "$MODE" in
+    xhs|xiaohongshu) COPY_MODE="xiaohongshu"; DEFAULT_RATIO="3:4"; KIND="note" ;;
+    wechat|mp)       COPY_MODE="wechat";      DEFAULT_RATIO="wechat-share"; KIND="article" ;;
+    *) echo "--mode 只能是 xhs 或 wechat" >&2; exit 2 ;;
+esac
+[[ -z "$RATIO" ]] && RATIO="$DEFAULT_RATIO"
+
+if [[ "$SOURCE" == auto ]]; then
+    if [[ -n "$URL" ]]; then SOURCE=link
+    elif [[ -n "$TOPIC" ]]; then SOURCE=topic
+    else SOURCE=hot; fi
+fi
+
+# ---- 鉴权 ----
+AUTH_HEADER=()
+if [[ -n "${AF_TOKEN:-}" ]]; then
+    AUTH_HEADER=(-H "Authorization: Bearer $AF_TOKEN")
+elif [[ -n "${AF_USER:-}" && -n "${AF_PASS:-}" ]]; then
+    AF_TOKEN=$(curl -fsS -X POST "$BASE_URL/api/auth/login" \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg u "$AF_USER" --arg p "$AF_PASS" '{username:$u,password:$p}')" \
+        | jq -r '.data.token')
+    AUTH_HEADER=(-H "Authorization: Bearer $AF_TOKEN")
+elif [[ -n "${AGENTFLOW_API_TOKEN:-}" ]]; then
+    AUTH_HEADER=(-H "X-API-Token: $AGENTFLOW_API_TOKEN")
+fi
+
+api() { # api METHOD PATH [BODY] —— 非 2xx 时把服务端错误体原样打出再退出（A0400/C0500 原因可读）
+    local method=$1 path=$2 body=${3:-} resp code
+    if [[ -n "$body" ]]; then
+        resp=$(curl -sS -w '\n%{http_code}' -X "$method" "$BASE_URL$path" \
+            ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} \
+            -H 'Content-Type: application/json; charset=utf-8' --data-binary "$body")
+    else
+        resp=$(curl -sS -w '\n%{http_code}' -X "$method" "$BASE_URL$path" \
+            ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"})
+    fi
+    code=${resp##*$'\n'}
+    resp=${resp%$'\n'*}
+    if [[ "$code" != 2* ]]; then
+        echo "HTTP $code ← $method $path" >&2
+        printf '%s\n' "$resp" | jq . >&2 2>/dev/null || printf '%s\n' "$resp" >&2
+        exit 1
+    fi
+    printf '%s' "$resp"
+}
+
+# ---- 组装 DSL ----
+NODES='[]' EDGES='[]' PREV=''
+link() { [[ -n "$PREV" ]] && EDGES=$(jq --arg f "$PREV" --arg t "$1" '. + [{from:$f,to:$t}]' <<<"$EDGES"); PREV=$1; }
+push() { NODES=$(jq --argjson n "$1" '. + [$n]' <<<"$NODES"); }
+
+if [[ "$SOURCE" == hot ]]; then
+    push "$(jq -n '{id:"a",type:"hotspot.fetch",params:{limit:20}}')"; link a
+elif [[ "$SOURCE" == link ]]; then
+    [[ -n "$URL" ]] || { echo "--source link 需要 --url" >&2; exit 2; }
+    push "$(jq -n --arg u "$URL" '{id:"a",type:"article.extract",params:{url:$u}}')"; link a
+fi
+
+COPY_PARAMS=$(jq -n --arg m "$COPY_MODE" --arg t "$TOPIC" --arg r "$RATIO" \
+    --arg a "$AUDIENCE" --arg o "$TONE" --arg x "$EXTRA" --arg l "$LENGTH" \
+    'reduce ({topic:$t,audience:$a,tone:$o,extra:$x,length:$l} | to_entries[] | select(.value!="")) as $e
+     ({}; .[$e.key] = $e.value) | . + {mode:$m}')
+push "$(jq -n --argjson p "$COPY_PARAMS" '{id:"b",type:"copy.write",params:$p}')"
+link b
+
+push "$(jq -n --arg r "$RATIO" '{id:"c",type:"image.cover",params:{kind:"cover",ratio:$r,n:1}}')"; link c
+
+if [[ "$ILLUSTRATIONS" -gt 0 ]]; then
+    push "$(jq -n --arg r "$RATIO" --argjson n "$ILLUSTRATIONS" \
+        '{id:"d",type:"image.cover",params:{kind:"illustration",ratio:$r,n:$n}}')"; link d
+fi
+
+push "$(jq -n '{id:"e",type:"publish.local",params:{}}')"; link e
+
+case "$PUBLISH" in
+    auto) [[ "$COPY_MODE" == wechat ]] && PUBLISH=wechat || PUBLISH=xhs ;;
+esac
+if [[ "$PUBLISH" == xhs ]]; then
+    push "$(jq -n '{id:"f",type:"xhs.draft",params:{}}')"; link f
+elif [[ "$PUBLISH" == wechat ]]; then
+    WP=$(jq -n --arg c "$CRED" 'if $c=="" then {} else {credentialId:($c|tonumber)} end')
+    push "$(jq -n --argjson p "$WP" '{id:"f",type:"wechat.draft",params:$p}')"
+    link f
+fi
+
+DSL=$(jq -n --arg name "creation-$MODE-$(date +%Y%m%d-%H%M%S)" \
+    --argjson nodes "$NODES" --argjson edges "$EDGES" \
+    '{name:$name,trigger:{type:"manual"},nodes:$nodes,edges:$edges}')
+
+echo "== DSL =="; echo "$DSL" | jq .
+if [[ "$DRY_RUN" == 1 ]]; then
+    exit 0
+fi
+
+WF_ID=$(jq -r '.data.workflowId' <<<"$(api POST /api/workflows "$DSL")")
+EX_ID=$(jq -r '.data.executionId' <<<"$(api POST "/api/workflows/$WF_ID/executions" '{}')")
+echo "== 执行 $EX_ID（workflow $WF_ID）=="
+
+STATUS=RUNNING
+for _ in $(seq 1 120); do
+    DET=$(api GET "/api/executions/$EX_ID")
+    STATUS=$(jq -r '.data.status' <<<"$DET")
+    [[ "$STATUS" != RUNNING && "$STATUS" != QUEUED ]] && break
+    sleep 2
+done
+jq -r '.data.nodes[]? | "  \(.nodeId) \(.nodeType) → \(.status)（\(.attempts) 次 / \(.durationMs // 0)ms\(.reason // "" | if .=="" then "" else " :: " + . end)）"' <<<"$DET"
+echo "== 终态: $STATUS =="
+[[ "$STATUS" == SUCCESS || "$STATUS" == SUCCESS_WITH_DEGRADED ]] || { echo "$DET" | jq .; exit 1; }
+
+ART_ID=$(jq -r "[.data[] | select(.kind==\"$KIND\")][0].id // empty" <<<"$(api GET "/api/artifacts?kind=$KIND&limit=1")")
+[[ -n "$ART_ID" ]] || { echo "成品库没有 kind=$KIND 记录" >&2; exit 1; }
+mkdir -p "$OUT_DIR"
+while IFS= read -r F; do
+    [[ -n "$F" ]] || continue
+    mkdir -p "$OUT_DIR/$(dirname "$F")"
+    curl -fsS ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} -o "$OUT_DIR/$F" "$BASE_URL/api/artifacts/$ART_ID/file?path=$F"
+    echo "  取回 $OUT_DIR/$F"
+done <<<"$(api GET "/api/artifacts/$ART_ID/files" | jq -r '.data[]')"
+echo "== 成品 #$ART_ID（kind=$KIND）已下载到 $OUT_DIR =="
+
+# 示例：
+#   scripts/run-creation.sh --mode xhs --topic "秋天适合读完的书" --ratio 3:4
+#   scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx --ratio 2.35:1
+#   scripts/run-creation.sh --mode xhs --source hot --illustrations 2 --publish local

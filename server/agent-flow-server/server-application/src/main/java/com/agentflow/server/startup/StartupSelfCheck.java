@@ -1,6 +1,11 @@
 package com.agentflow.server.startup;
 
+import com.agentflow.server.config.ContentProperties;
+import com.agentflow.server.config.NodeConfigProperties;
 import com.agentflow.server.security.SecurityProperties;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,10 +25,15 @@ public class StartupSelfCheck implements ApplicationRunner {
 
     private final Environment env;
     private final SecurityProperties securityProps;
+    private final ContentProperties contentProps;
+    private final NodeConfigProperties nodeProps;
 
-    public StartupSelfCheck(Environment env, SecurityProperties securityProps) {
+    public StartupSelfCheck(Environment env, SecurityProperties securityProps,
+                            ContentProperties contentProps, NodeConfigProperties nodeProps) {
         this.env = env;
         this.securityProps = securityProps;
+        this.contentProps = contentProps;
+        this.nodeProps = nodeProps;
     }
 
     @Override
@@ -36,12 +46,33 @@ public class StartupSelfCheck implements ApplicationRunner {
         log.info("AGENTFLOW_API_TOKEN present  : {}", !securityProps.apiToken().isBlank());
         log.info("jwt-secret present           : {}", !securityProps.jwtSecret().isBlank());
         log.info("rate-limit per-minute        : {}", securityProps.rateLimitPerMinute());
+        log.info("llm api-key present          : {}", !nodeProps.llm().apiKey().isBlank());
+        log.info("image api-key present        : {}", !nodeProps.image().apiKey().isBlank());
+        log.info("content library dir          : {}", checkLibrary());
         // P3 硬基线：开鉴权必须配 JWT 密钥——缺密钥的"开鉴权"等于把所有请求关在门外或全部放行，两者都不可接受
         if (securityProps.enabled() && securityProps.jwtSecret().isBlank()) {
             throw new IllegalStateException("security.enabled=true 但未配置 AGENTFLOW_JWT_SECRET（fail-fast，禁止默认密钥上线）");
         }
         if ("prod".equals(String.join(",", env.getActiveProfiles())) && !securityProps.enabled()) {
             log.error("!! prod profile 下 security.enabled=false，违反安全基线，禁止对外服务 !!");
+        }
+    }
+
+    /**
+     * 成品库是发布闭环的最后一站，目录不可写等于"发出去的是空气"，所以启动时就试建一次并回显真实绝对路径。
+     * 只记录状态，不抛异常：内容库缺席时 llm/chat 类工作流仍可运行，publish 节点会在执行时报配置错。
+     */
+    private String checkLibrary() {
+        Path dir = Path.of(contentProps.libraryDir()).toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(dir);
+            Path probe = dir.resolve(".write-probe");
+            Files.write(probe, new byte[] {1});
+            Files.delete(probe);
+            return dir + " (writable)";
+        } catch (IOException e) {
+            log.error("!! 成品库目录不可写：{} -> {}，publish.local / xhs.draft 执行将失败 !!", dir, e.getMessage());
+            return dir + " (NOT writable: " + e.getClass().getSimpleName() + ")";
         }
     }
 }

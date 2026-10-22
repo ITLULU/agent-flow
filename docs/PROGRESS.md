@@ -84,11 +84,79 @@
 - 限流：per-principal 每分钟固定窗（默认 120，0=关），超限 A0429 + Retry-After；内存态单实例（多实例切网关/Redis，记账）。
 - llm/image 节点的 credentialId 接入本轮不做（网关单例改造面大），先闭环 wechat.draft 一例验证端口设计。
 
+## P4A 创作流水线（插入阶段：用户目标 2/3/4）—— ✅ 全部完成（开工 2026-10-21 20:10，完结 2026-10-22 00:42）
+
+> 目标口径：热榜/链接/话题三种输入 → 小红书文案或公众号长文 → 按指定比例出主图（需要时配图）→ 本地成品库 + 公众号草稿箱。P4（Vue 画布）编号保留不重排。
+
+| 任务 | 状态 | 完结 | 证据 DoD |
+|---|---|---|---|
+| P4A-1 输入层：hotspot.fetch（四源热榜）+ article.extract（链接取正文） | ✅ | 10-21 21:40 | HotTopicFetchNodeExecutorTest / ArticleExtractNodeExecutorTest 绿：多源合并去重、单源失败只记 failedSources、零条目显式留痕"疑似接口结构变更"、全失败才抛 C0003、热榜整体不可用**降级为空条目**让下游用自带话题续跑；`endpointOverride` 换源不改码 |
+| P4A-2 copy.write：双渠道创作 + 【标记】分节解析 | ✅ | 10-21 22:10 | 提示词外置 `copy-wechat.txt`/`copy-xiaohongshu.txt`；产出 title/subtitle/digest/body/hashtags/keyPoints/coverLines/wordCount/model/totalTokens；未按分节标记返回时 `parseFallback=true` 整体交付并留 `parseNote`（不静默丢标题）；素材优先级 material > article.extract.text > hotspot 标题列表 |
+| P4A-3 image.cover：比例预设 + 任意 a:b + 落地成品库 | ✅ | 10-21 22:40 | RatioSpecTest 8 绿（含 `a:b` 保留用户写法、`8:12→2:3`）；预设 square/1:1、xhs/3:4、landscape/4:3、story/9:16、banner/16:9、wechat-share/2.35:1、wechat-small；长边 1024 折算、边长强制 512–1440；`noRetry` 防重复计费；无图**降级**继续发布；文件名带比例（`cover-1-3x4.png`） |
+| P4A-4 publish.local + xhs.draft：本地归档与图文包 | ✅ | 10-21 23:10 | 成品库 `kind=note/article`：article.md / note.txt + meta.json + assets/*.png；xhs 无官方草稿 API → 默认只出图文包，配 `endpoint` 才外发且失败记 warnings 不判 FAILED（避免"发布失败"与"包未生成"混淆） |
+| P4A-5 wechat.draft 接入流水线（真缺陷修复） | ✅ | 10-22 00:05 | title/content/digest/thumbUrl 全部加**上游回退**；纯文本按段落转 `<p>` HTML 并转义（`<`/`>`/`&`，防伪标签）；封面从 `image.cover.images[0].url` 下载→素材库上传→`thumb_media_id`；WechatDraftNodeExecutorTest 12→17 绿，发布通道 degrade 仍为空（永不静默降级） |
+| P4A-6 成品库 API `/api/artifacts*`（属主隔离 + 防穿越） | ✅ | 10-22 00:20 | 非属主与不存在同为 404（不泄露"存在但无权"）；下载需同时过 `filesOf` 白名单 + `resolveInside`；未知扩展名一律 `application/octet-stream`（不猜 text/html，防存储型 XSS）；`../1/meta.json` 在 e2e 里实测 A0404 且不泄露路径 |
+| P4A-7 两条通道端到端闭环测 | ✅ | 10-22 00:20 | `P4CreationPipelineE2ETests` 2/2：小红书链（hot→copy→image 768*1024→archive→xhs 包，断言下载 md/png 字节一致）+ 公众号链（copy wechat→image 1200*512→archive→wx 草稿，断言 `<p>一、…</p>` 分段 HTML 与 thumb-e2e）；全量 `mvn -o -B clean verify` **185 测试 0 失败**（platform-common 13 / workflow-engine 13 / node-adapters 121 / server-application 38） |
+| P4A-8 文档与脚本三处一致 | ✅ | 10-22 00:42 | 新增 `docs/CREATION-GUIDE.md`（3 输入×2 渠道×比例表 + DSL 骨架 + curl 拆解 + 凭证口径 + 已知边界）、`scripts/run-creation.sh`（macOS bash 3.2 可跑，支持 `--dry-run`）；README 改 macOS 口径并补 `agentflow.content.library-dir` 等 4 行；本表 + 变更日志 |
+
+**P4A 过程中修掉/拿下的真问题**：
+- `RatioSpec` 把用户写的 `3:4` 回写成 `0.75:1`，成品文件名与比例标签失真 → 改为整数比 GCD 归一（保留原写法），新单测钉住。
+- `wechat.draft` 在流水线里拿不到上游标题/正文/封面（只认显式参数），公众号通道实际闭不上 → 加上游回退 + 段落 HTML 化，单测+E2E 双钉。
+- README 快速开始的 `mvn -pl server-application spring-boot:run` 在干净克隆上必失败（兄弟模块未进本地仓库，DependencyResolutionException）→ 补 `mvn -B install -DskipTests` 前置；同时验证 `java -jar` 打包产物可直接启动（2.65s 启动、ping 200、启动自检报 library 可写 + 双 key 缺失）。
+- `run-creation.sh` 三连真 bug：macOS bash 3.2 下 `set -u` 展开空数组 `AUTH_HEADER[@]` 直接崩（改 `${arr[@]+"${arr[@]}"}`）；`trigger` 写成字符串 `"manual"` 被 DSL 解析拒（TriggerDef 是对象，文档已标为易错点）；`curl -f` 把服务端错误体吞掉导致排障无从下手（api() 改为回显 HTTP 码 + JSON 错误体）。
+- 执行明细轮询口径：节点日志增量落库，明细里出现节点级 `"SUCCESS"` 时整条执行仍可能 RUNNING —— 必须轮询**顶层** `.data.status` 判终态（E2E 与脚本同口径修正）。
+
+**遗留（非阻塞）**：真 key 联调由用户执行（注入 `BAILIAN_API_KEY` + `WECHAT_APPID/WECHAT_SECRET` 后跑 `scripts/run-creation.sh`）；本机无 key 时脚本实测在 `copy.write` 以 A0400 显性失败并打印原因，符合 fail-fast 设计。
+
 ## P4 Vue 画布（4d）—— ⬜ 未开始
 LogicFlow 2.x 编排画布 ↔ DSL JSON 双向映射、参数面板、执行日志视图。
 
-## P5 部署与首轮评审（1d）—— ⬜ 未开始
-Dockerfile（多阶段）、compose server 段启用、云服务器 prod 部署演练、首轮 enterprise-project-review。
+## P5 部署（1d）—— ✅ 完成（实机 prod 形态已在 macOS Docker 上跑通）
+| 任务 | 状态 | 完结 | 证据 DoD |
+|---|---|---|---|
+| P5-1 Dockerfile 多阶段 + 非 root 运行 | ✅ | 10-22 00:48 | `server/agent-flow-server/Dockerfile`（maven+JDK21 构建 → temurin 21-jre 运行，UID 10001）+ `.dockerignore` |
+| P5-2 秘密垫片入口（`*_FILE` → env） | ✅ | 10-22 00:48 | `deploy/docker-entrypoint.sh` 白名单读取 5 个 `*_FILE`（实测：通用 `*_FILE` 循环会误吞无关环境变量，已改白名单）；`deploy/gen-secrets.sh` 生成本机秘密（base64(32B) 主密钥 / 48B JWT，权限 600，目录 700） |
+| P5-3 compose server 段启用 | ✅ | 10-22 00:52 | `docker compose config` 通过；`read_only: true` + `cap_drop ALL` + `no-new-privileges` + tmpfs /tmp（用 `-Duser.home=/nonexistent-home` 实测应用零写盘，只写 library 卷）；`stop_grace_period` 与 graceful shutdown 对齐 |
+| P5-4 prod 镜像实机起服（PG + server 容器） | ✅ | 10-22 01:33 | `docker compose up -d --build` 起 pgvector/pg16 + server：Flyway 3 条迁移在 **PostgreSQL 16.15** 全部 success（`artifact/execution/execution_node_log/user_credentials/users/workflow` 7 表）；启动 2.6s，自检 `profiles=[prod] / security.enabled=true / master-key✔ / jwt✔ / library=/app/data/library(writable)`；真机链路：注册→登录→建流→触发出 `SUCCESS`（a/b 两节点各 1 次尝试）→ `execution_node_log` 落库→非法 cron A0400 / DELETE 撤调度；边界 401/`A0405`/`A0400`/限流 `A0429`（120/min 后第 131 次）全部按码返回；`docker compose stop` 1s 内 `Graceful shutdown complete` + Hikari 干净关闭；重启后数据与调度状态保留（卷持久 + `read_only` 根盘） |
+| P5-6 缺陷修复：`*_FILE` 空秘密把容器打进重启循环 | ✅ | 10-22 01:20 | 实机首起 `server-1 Restarting`：`deploy/docker-entrypoint.sh` 对 0 字节占位秘密（bailian/wechat 未配 key）`FATAL exit 1`。修：空文件按"未配置"WARN + unset，与"空凭证不阻塞启动、执行期报 A0400"口径一致（fail-fast 仍由 StartupSelfCheck/凭证 API 兜住）；`deploy/maven-settings.xml` 挂进构建层（bind 挂载不进镜像），容器内 Maven 走阿里云公共仓，单次构建从十分钟级回到 ~90s |
+| P5-7 缺陷修复：prod 启动日志噪声 + `PUT schedule` 静默撤调度 | ✅ | 10-22 01:33 | ① spring-ai-alibaba 传递引入 nacos-client，`read_only` 根盘下启动刷 18 条 logback ERROR + 栈（真实故障会被埋掉）→ `JAVA_OPTS` 加 `-Dnacos.logging.default.config.enabled=false`，启动 ERROR 从 18 降到 1（剩 `AliyunConfigFilter region not set` 一条；试过 `spring.cloud.nacos.config.enabled=false` 无效、`spring.autoconfigure.exclude` 直接启动失败，故不做依赖层手术，转 P6 评审判是否 pom exclusion）。② `PUT /api/workflows/{id}/schedule` 只带 `cron` 不带 `enabled` 时按 false 处理 → 返回 200 却把调度**撤掉**了；改为"带 cron 即默认登记"，`enabled:true` 而 cron 空则 A0400，新增 2 个 e2e 断言并在容器上复验。全量 `mvn -B verify` **189 测试 0 失败**（13/13/121/42） |
+| P5-5 异常边界缺陷修复：路由层 4xx 被吞成 500 | ✅ | 10-22 00:58 | 真机探测 `POST /api/credentials`（该路径只有 PUT/DELETE）返回 **500 + B0001**——客户端错误伪装成系统故障。修：`GlobalExceptionHandler` 补 `HttpRequestMethodNotSupportedException`→405、`HttpMediaTypeNotSupported/HttpMessageNotReadable`→400；新错误码 `A0405` 入 `ErrorCode` 枚举并在 `ApiException` 分支映射 405。新增 2 个 e2e 断言 + 真机验证：`405 {"code":"A0405","message":"请求方法不支持: POST"}`，同 token GET 仍 200。全量 `mvn -B verify` **187 测试 0 失败**（13/13/121/40） |
+
+## P6 首轮企业级评审（✅ 已开完；四条 🛑 已在 P7-1 修完，🔶/⚠️ 待排期）
+
+评审纪要：[EXPERT-REVIEW-P6.md](EXPERT-REVIEW-P6.md)（目标档位：十万 QPS；部署口径：本机 10C/16G）。
+决议：**自用形态 CONDITIONAL GO / 对外多租户 NO-GO**；🛑 4 项、🔶 5 项、⚠️ 7 项。
+本节原四项议程全部进了纪要（#8 抢注即接管、#15 nacos 传递依赖、#11 多实例硬约束、⚠️ 契约形状），
+并新增四项议程外、实测取证的硬缺陷：凭证跨租户可读（`findSecretEnc` 无 owner 条件）、
+`X-API-Token` 主体 uid=0 即全站 admin、**DB 宕机时 readiness 仍报 UP**（实机 `docker stop agent-flow-db-1` 复现）、
+密钥 fail-fast 时机在端口绑定之后（`ApplicationRunner`）。
+同时**撤销**侦察阶段一条误报：外部调用"无超时导致降级永不触发"不成立，节点侧 connect+per-request 超时齐全。
+
+P5 实机演练已把这四项带上议程（都是探到的真问题，不是假设）：
+
+1. **首个注册用户即 admin**：容器实测 `POST /api/auth/register` 的第一个账号拿到 `role=admin`。冷启动需要 bootstrap 账号，但"谁先注册谁当管理员"暴露在公网上就是提权路径 → 评审结论应为：改为 env 显式注入 bootstrap 账号 / 或注册接口在已有 admin 时禁止 self-assign admin。
+2. **nacos-client 是未使用的传递依赖**：fat jar 里躺着 `nacos-client-2.4.2.jar`（7.8MB）+ `spring-alibaba-nacos-config`，本项目不接 Nacos。启动残余 1 条 ERROR（`AliyunConfigFilter region is not set`）来自它。选项：在 dashscope starter 上 `<exclusions>`（需真 key 的 E2E 回归护航），或接受噪声并留档。
+3. **多实例硬约束**：限流是单进程内存固定窗、cron 领发靠 DB CAS 但没有分布式幂等键；README 已钉死"单实例假设"，上多实例前必须给方案（网关计数 / Redis 固定窗）。
+4. **`nextFireAt` 返回值形状**：现在是 `ZonedDateTime.toString()` → `"2026-10-22T01:35+08:00[Asia/Shanghai]"`，带方括号 zone 的字符串不适合作对外契约，评审后统一成 ISO-8601 瞬时（`2026-10-21T17:35:00Z`）。
+
+---
+## P7-1 四条 🛑 修复（✅ 完成 2026-10-22 11:20；容器形态 + 真 PG16 复验 16:17）
+
+范围＝评审 §4 的 #1/#2/#3/#4 四条 🛑（纪要回写见 [EXPERT-REVIEW-P6.md](EXPERT-REVIEW-P6.md) §7）。全量 `mvn -B -o clean verify` **192 测试 0 失败**（13/13/121/45，基线 189 +3 新增）；另跑实机反向验证 **25 项断言全绿**。
+
+| 项 | 状态 | 时间 | 证据与取舍 |
+|---|---|---|---|
+| P7-1a readiness 组纳入 db/ping | ✅ | 10-22 10:40 | `management.endpoint.health.group.readiness.include: readinessState,db,ping`；**liveness 刻意不含 db**（抖动该摘流量等恢复，重启进程解决不了 DB 故障、还会打死在途执行）。实机反向验证：库可达 readiness 200；把 datasource 换成不可达 PG（`127.0.0.1:59999`）后 **liveness 200 / readiness 503 DOWN**——修复前这两个探针在同一场景下都报 UP |
+| P7-1b API-Token 不再等于全站 admin | ✅ | 10-22 10:55 | `Principal.isAdmin()` 只看 `role`，去掉 `\|\| uid == SYSTEM_UID`；服务通道主体 `role=ops`、白名单主体 `role=anonymous`；`AuthFilter` 白名单由 `/api/auth` **前缀匹配**改为"归一化后的精确路径集合"（`URI.create(uri).normalize()`），`/api/auth/../workflows/1` 这类跳板路径回到鉴权。实机：`X-API-Token` 读他人工作流 404、列他人凭证为空，服务通道本身仍可用；`AuthFilterTest` 钉住 `isAdmin=false`/`canAccess(42)=false`。**遗留**：token 仍无 kid/过期/按调用方拆分（评审 #2 的后半段，挂 P7-2） |
+| P7-1c credentialId 归属校验 | ✅ | 10-22 11:05 | 端口签名 `CredentialProvider.resolve(credentialId, workflowId)`——校验放在**端口实现**而非节点里，因为 `credentialId` 来自用户可写的 DSL，"让 executor 自己判"必被下一个节点忘记。`JdbcCredentialProvider` 先 `WorkflowCatalog.ownerOf(workflowId)` 反查工作流属主，再 `findSecretEncOwned(id, ownerId)`（SQL `WHERE id = ? AND owner_id = ?`）；"不存在/不是你的/无主密钥"统一回 `Optional.empty()`，区分它们本身就是探测他人凭证存在与否的侧信道；日志只带 id 与异常类型。实机：属主自己的工作流把 `appid=p7-vault-appid` 真带出网（桩留痕，失败原因是微信 40013），他人引用同一 id 报"凭证不存在或无法解密"且**桩一次请求都没收到**（拒在出网前）；API 面非属主删除同为 404 |
+| P7-1d Prometheus 指标 + 业务四金 | ✅ | 10-22 11:15 | pom 引 `micrometer-registry-prometheus`；`exposure.include` 加 `prometheus`；`ExecutionManager` 埋 `agentflow.execution.submitted`、`agentflow.execution.finished{status}`、`executionDuration` Timer、`queueWait` Timer（`slots.acquire()` 之后记账）+ 闸门 `slots.available`/`slots.queued` gauge。实机 `/actuator/prometheus` 抓到 `submitted_total 2.0`/`finished_total{status="FAILED"} 2.0`/`duration_seconds_*`/`exec_slots_available 16.0`/`exec_slots_queued 0.0`。**踩坑留档**：Boot 测试默认关掉 metrics 导出，e2e 断言 Prometheus 需 `@AutoConfigureObservability(tracing = false)`；`/actuator/prometheus` 在 `@SpringBootTest` 里返回应用的 A0404 而打包 jar 正常，就是这一条 |
+| 顺手修掉的测试 flake | ✅ | 10-22 11:18 | `P3ScheduleTests.registerBackdateFireThenNoDoubleFire` 全量跑挂、单跑过——不是竞态而是**墙钟跨越**：cron 用了 `0 0/5 * * * *`，异步轮询窗口跨过了 5 分钟边界，第二次 `fireDue()==1` 是正确行为。改成日频 cron 让周期远大于用例时长 |
+
+**容器形态 + 真 PG16 复验（16:17 补做，28 项断言全绿，豁免项已消）**：重建 `agentflow/server:0.1.0`，prod profile + pgvector/pg16，`read_only`/`cap_drop`/`*_FILE` 全沿用。验证走 scratch 库 `p7check`（`CREATE DATABASE` → 跑完 `DROP DATABASE ... WITH (FORCE)`），**prod 库保持 0 用户/0 工作流交接状态**（复验后逐表计数复核）。要点：首用户 admin 引导未误伤（admin 读他人流 200、普通用户读他人流 404）；普通用户引用他人 credentialId 被拒且桩零请求、属主本人真带 `appid=p7-vault-appid` 出网；`docker stop agent-flow-db-1` → liveness 200 / readiness 503，`docker start` 后 readiness 自动回 200；prod profile 下五项 `agentflow_*` 指标齐全。
+
+**复验新发现（⚠️ → P7-2 决策）**：`/actuator/prometheus` 不在白名单，未认证 = 401；prod compose 又没配 `AGENTFLOW_API_TOKEN` ⇒ **现有 Prometheus 抓不到指标**（JWT 2h 过期，不能当抓取凭证）。二选一：给 scraper 专用静态 token（代价：它同时有 uid=0 资源写权限），或把该端点放进内网白名单并要求 8080 不直连公网。本轮未擅自改安全边界。
+
+**P7-1 未包含**：评审 #5 密钥 fail-fast 时机、#6 匿名限流桶、#7 TIMEOUT 僵尸副作用、#8 抢注即接管、#9 备份与恢复演练（🔶 全部仍在 P7-2）；#10–#17（⚠️）在 P7-3 及档位演进时兑现。**评审"对外 NO-GO"决议不因本轮修复自动改变**。
 
 ---
 ## 变更日志
@@ -98,3 +166,14 @@ Dockerfile（多阶段）、compose server 段启用、云服务器 prod 部署�
 - 2026-10-19 14:34 P2-1～P2-4 四节点+44 个单测全绿（含修掉 add_material 缺 access_token 真缺陷）；进入 P2-5 server 装配。
 - 2026-10-19 15:03 P2 七项全部完成：全量 79 测试绿，运行时冒烟验降级链/不可重试快败；README 决策记录补 LangChain 评析；下一步 P3。
 - 2026-10-19 17:45 P3 九项全部完成：纯 JDK 安全栈（JWT/PBKDF2/AES-GCM）+ V2 迁移 + 归属隔离 + 凭证库闭环 + cron CAS 领发 + 限流；全量 109 测试绿；冒烟验证 401/注册/登录/建流/执行/调度/非法 cron 拒绝；下一步 P4 Vue 画布。
+- 2026-10-21 20:10 用户插入目标（创作 agent 闭环 + 指定比例生图 + 本地/草稿发布），P4A 阶段开工；P4/P5 编号保留。
+- 2026-10-22 00:20 P4A-1～P4A-7 完成：7 个创作节点 + `/api/artifacts*` + 两条通道端到端闭环；修掉 RatioSpec 比例标签失真、wechat.draft 上游断链两个真产品缺陷；全量 `mvn -o -B clean verify` 185 测试 0 失败（13/13/121/38），35.6s。
+- 2026-10-22 00:42 P4A-8 完成：`docs/CREATION-GUIDE.md` + `scripts/run-creation.sh`（真机跑通到配置错边界，暴露并修掉 bash 3.2 空数组/trigger 形状/`curl -f` 吞错误体三连）；README 快速开始从 PowerShell 改 macOS 口径并补 `mvn install` 前置与 `library-dir` 等配置行。
+- 2026-10-22 00:58 P5-1～P5-3 落地（Dockerfile 多阶段 + `*_FILE` 秘密垫片 + compose server 段 `read_only`/`cap_drop` 加固）；prod 起服演练中探到真缺陷：路由层 405/400 被兜底 handler 吞成 500+B0001 → 补 `A0405` 与两个 handler，全量 187 测试绿 + 真机 405 验证通过。
+- 2026-10-22 01:33 P5-4 实机 prod 起服完成：`docker compose up -d --build` 起 pgvector/pg16 + 加固 server，Flyway 3 迁移在 PostgreSQL 16.15 全成功，注册→建流→执行→落库→调度→401/A0405/A0400/A0429→1s graceful shutdown 全链路真机验过。演练再挖出两个真缺陷并修掉：空秘密占位文件把容器打进重启循环（P5-6）、`PUT schedule` 缺 `enabled` 静默撤调度（P5-7，含 nacos 启动噪声治理）；全量 `mvn -B verify` 189 测试 0 失败。P6 评审议程四项已带上线（首用户即 admin / nacos 传递依赖 / 多实例约束 / `nextFireAt` 契约形状）。
+- 2026-10-22 08:06 P6 评审会议召开并出纪要 `docs/EXPERT-REVIEW-P6.md`：按 `expert-review-meeting` 四专家流程，锚定十万 QPS + 本机 10C/16G 口径，决议"自用 CONDITIONAL GO / 对外 NO-GO"，🛑4/🔶5/⚠️7。新探到四项议程外的硬缺陷（凭证跨租户可读、API-Token 即 uid0 全域 admin、DB 宕机 readiness 仍 UP 实测复现、密钥 fail-fast 晚于端口绑定），并撤销侦察阶段"外部调用无超时"的误报；bootstrap §1–§10 基线核对：7 项达标，可观测性与 SENSITIVE 标记两项欠账。另按用户要求在用户目录新增 `tasklist-driver` skill（清单→计划→执行→进度→汇报→测试验证→遗留问题→VERIFIED 三档判定）。
+- 2026-10-22 11:20 P7-1 四条 🛑 全部修完（readiness 含 db / API-Token 去特权 + 白名单精确路径 / credentialId 按工作流属主校验 / Prometheus 五指标），全量 `mvn -B -o clean verify` 192 测试 0 失败；打包 jar 实机反向验证 25 项断言全绿，含"他人引用同一 credentialId 时本地桩一次请求都没收到"这条硬证据。豁免：Docker Desktop 未运行、镜像重建未获批 ⇒ 容器形态 + 真 PG16 复验顺延为 P7-2 第一项；🔶5 项与 ⚠️ 项本轮未动，**对外 NO-GO 决议维持不变**。
+- 2026-10-22 16:17 用户授权启动 Docker，P7-1 的豁免项已消：重建 `agentflow/server:0.1.0`，在 prod profile + pgvector/pg16 容器上跑 **28 项断言全绿**（scratch 库 p7check，跑完销毁，prod 库仍 0 用户/0 工作流）。关键：普通用户跨租户被拒、admin 通道未误伤、`docker stop` 库后 readiness 503 / `start` 后自愈 200、prod 下五项业务指标齐全。新发现（⚠️，P7-2 决策）：`/actuator/prometheus` 未进白名单且 prod 无 `AGENTFLOW_API_TOKEN` ⇒ 现成 Prometheus 抓不到指标（JWT 2h 过期），需在"scraper 专用静态 token"与"内网白名单"之间拍板。
+- 2026-10-22 16:55 部署收敛：agent-flow 的 compose 迁到 `SpringCloudAdmin/docker-compose/agent-flow/docker-compose.yml`（与 mysql/qdrant 同构、同挂 `my-custom-network`），原 agent-flow 仓库根目录的 compose 已删除（git 可恢复），全仓只留这一套。运行栈已切换：容器 `agent-flow-server` / `agent-flow-db`，数据落 compose 同目录 `data/pg`、`data/library`；旧命名卷 `agent-flow_pgdata` / `agent-flow_library` 保留作回滚。README §1/§5、`deploy/gen-secrets.sh` 注释、SpringCloudAdmin 部署手册 §七 已同步。
+- 2026-10-22 19:24 部署目录彻底解耦：compose 去掉 `build:`（改为只消费 `agentflow/server:0.1.0`），秘密从 `agent-flow/deploy/secrets/` 整体迁到 `SpringCloudAdmin/docker-compose/agent-flow/secrets/`（600/700，值不变以匹配现有 PG 卷），原 `agent-flow/deploy/` 目录已删除，本地新增自包含 `gen-secrets.sh` + `.gitignore`（忽略 `data/`、`secrets/`）。`--force-recreate` 后 `docker inspect` 确认 6 个秘密与 `data/library`、`data/pg` 全部来自 compose 目录；readiness 200、Flyway 3、users 0。README §5 与部署手册 §七 改为"先在本仓库 `docker build`，再在 compose 目录 `gen-secrets.sh` + `up -d`"。
+- 2026-10-22 20:50 阶段验收复核（不改代码，只取证）：全量 `mvn -B -o verify` **192 测试 0 失败**（13/13/121/45，与 P7-1 基线持平，BUILD SUCCESS 23.9s）；容器 `agent-flow-server`/`agent-flow-db` 均 healthy，liveness/readiness 200、`/actuator/prometheus` 401（抓取凭证缺口复现）、prod 库 users/workflow/execution 全 0、迁移 3；镜像 16:15 构建且 `find server -name '*.java' -newermt '16:15'` 为 0 ⇒ 运行态=已验证代码。**进度判定：计划 §7 六阶段里 P0/P1/P2/P3/P5 ✅、P4A 插队目标 ✅、P4 前端画布 ⛔ 未开工（无 `web/` 目录）；P6 评审 ✅、P7-1 ✅、P7-2/P7-3 ⛔。** 新发现两条交付级问题：① `git status` 58 个路径未提交（32 A + 24 M + 1 D），`origin/master` 仍是唯一的初始 commit，`git ls-tree -r origin/master` 中 auth/credential/creation/Dockerfile/EXPERT **命中 0** ⇒ P3 之后所有代码与文档只存在于本地工作树，**CI 从未针对当前代码跑过**，验证结论无法由他人复现；② `secrets/bailian_api_key`、`wechat_appid`、`wechat_secret` 均为 0 字节 ⇒ 生图与公众号草稿只验到 A0400 配置错边界与本地桩，"真出片"仍未验证。

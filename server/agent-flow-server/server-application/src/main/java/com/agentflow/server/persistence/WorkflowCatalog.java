@@ -6,6 +6,7 @@ import com.agentflow.engine.model.WorkflowDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.OptionalLong;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -22,6 +23,12 @@ public class WorkflowCatalog {
     public WorkflowCatalog(JdbcTemplate jdbc, ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+    }
+
+    /** 鉴权用的轻量归属查询：不存在返回 empty 而非抛错——凭证解析不能因为一个 id 把执行链路炸成 500。 */
+    public OptionalLong ownerOf(long id) {
+        return jdbc.query("SELECT owner_id FROM workflow WHERE id = ?",
+                (rs, i) -> rs.getLong(1), id).stream().mapToLong(Long::longValue).findAny();
     }
 
     public long save(WorkflowDefinition def, long ownerId) {

@@ -131,6 +131,57 @@ class WechatDraftNodeExecutorTest {
     }
 
     @Test
+    void copyWriteOutputDrivesTitleAndParagraphs() {
+        // 创作闭环里 wechat.draft 只接上游，不再让人手抄标题正文
+        NodeInput input = new NodeInput(Map.of("digest", ""), Map.of(
+                "c", Map.of("title", "秋天，把书一本本读完",
+                        "digest", "一份照着读的秋日书单",
+                        "body", "第一段。\n\n第二段。")));
+        NodeOutput out = executor(Duration.ofSeconds(5)).execute(input, CTX);
+
+        String draft = wechat.draftBodies.get(0);
+        assertThat(draft).contains("秋天，把书一本本读完")
+                .contains("<p>第一段。</p>").contains("<p>第二段。</p>")
+                .contains("一份照着读的秋日书单");
+        assertThat(out.data()).containsEntry("title", "秋天，把书一本本读完").containsEntry("hasThumb", false);
+    }
+
+    @Test
+    void coverImageUpstreamBecomesThumbMaterial() {
+        NodeOutput out = executor(Duration.ofSeconds(5)).execute(new NodeInput(Map.of("title", "T", "content", "C"),
+                Map.of("i", Map.of("images", List.of(Map.of("url", wechat.url("/cover.jpg")))))), CTX);
+
+        assertThat(out.data()).containsEntry("hasThumb", true);
+        assertThat(wechat.server.requestLog()).contains("GET /cover.jpg", "POST /cgi-bin/material/add_material");
+        assertThat(wechat.draftBodies.get(0)).contains("thumb_media_id").contains("thumb-1");
+    }
+
+    @Test
+    void plainTextIsEscapedSoRawAngleBracketsCannotForgeTags() {
+        executor(Duration.ofSeconds(5)).execute(new NodeInput(
+                Map.of("title", "T", "content", "A & B\n<div>不该被当成标签</div>"), Map.of()), CTX);
+        assertThat(wechat.draftBodies.get(0)).contains("A &amp; B").contains("&lt;div&gt;")
+                .doesNotContain("<div>");
+    }
+
+    @Test
+    void htmlContentIsPassedThroughUntouched() {
+        executor(Duration.ofSeconds(5)).execute(new NodeInput(
+                Map.of("title", "T", "content", "<section>作者自己排的版</section>"), Map.of()), CTX);
+        assertThat(wechat.draftBodies.get(0)).contains("<section>作者自己排的版</section>");
+    }
+
+    @Test
+    void missingTitleAndBodyBothFailFastWithUpstreamHint() {
+        assertThatThrownBy(() -> executor(Duration.ofSeconds(5))
+                .execute(new NodeInput(Map.of(), Map.of()), CTX))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ErrorCode.BAD_REQUEST);
+                    assertThat(e.getMessage()).contains("copy.write");
+                });
+    }
+
+    @Test
     void draftWithoutThumbSkipsMaterialUpload() {
         NodeOutput out = executor(Duration.ofSeconds(5)).execute(
                 new NodeInput(Map.of("title", "T", "content", "C"), Map.of()), CTX);

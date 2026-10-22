@@ -25,6 +25,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,8 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * wechat.draft — 微信公众号草稿箱发布节点（token → 封面素材 → draft/add，复刻 n8n 版验证过的 API 序列）。
  *
- * params: title(必填) / content(可选，缺省取上游 text|content) / author / digest
- *         thumbUrl(可选封面图，缺省取上游 imageUrl——接 image.wanxiang 输出)
+ * params: title / content / digest / thumbUrl 都可显式给，缺省按上游创作产物回退：
+ *         title←copy.write.title，content←copy.write.body（纯文本自动转段落 HTML），
+ *         digest←copy.write.digest，thumbUrl←image.cover.images[0].url（也兼容 image.wanxiang 的 imageUrl）
+ *         author(仅显式参数)
  *         credentialId(可选，P3 凭证库引用；命中则覆盖全局 env 凭证)
  * 输出: draftMediaId / title / hasThumb
  *
@@ -102,19 +105,21 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
 
     @Override
     public NodeOutput execute(NodeInput input, ExecutionContext ctx) {
-        String[] creds = credsFor(input);
+        String[] creds = credsFor(input, ctx);
         String appId = creds[0];
         String appSecret = creds[1];
         if (appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank()) {
             throw new ApiException(ErrorCode.BAD_REQUEST, "公众号发布未配置（缺少 WECHAT_APPID/WECHAT_SECRET 或 credentialId）");
         }
-        String title = input.paramAsString("title", null);
-        if (title == null || title.isBlank()) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "wechat.draft 缺少必填参数 title");
+        String title = firstNonBlank(input.paramAsString("title", null), upstreamString(input, "title"));
+        if (title.isBlank()) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "wechat.draft 缺少标题：请传 title 参数，或把 copy.write / article.extract 作为上游");
         }
         String content = resolveContent(input);
         if (content.isBlank()) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "wechat.draft 无正文：content 参数缺失且上游无 text/content 输出");
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "wechat.draft 无正文：content 参数缺失且上游无 body/text/content 输出");
         }
 
         String token = accessToken(appId, appSecret);
@@ -126,7 +131,9 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         }
 
         String draftMediaId = addDraft(appId, token, title, content,
-                input.paramAsString("author", ""), input.paramAsString("digest", ""), thumbMediaId);
+                input.paramAsString("author", ""),
+                firstNonBlank(input.paramAsString("digest", null), upstreamString(input, "digest")),
+                thumbMediaId);
 
         Map<String, Object> data = new HashMap<>();
         data.put("draftMediaId", draftMediaId);
@@ -137,8 +144,11 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
 
     // ---- 内部流程 ----
 
-    /** credentialId 参数（数字或数字串）→ 凭证端口；未带参数回退全局 env 凭证。任何解析失败都是 A0400 不可重试。 */
-    private String[] credsFor(NodeInput input) {
+    /**
+     * credentialId 参数（数字或数字串）→ 凭证端口；未带参数回退全局 env 凭证。任何解析失败都是 A0400 不可重试。
+     * 端口要 workflowId：凭证归属只认"这条工作流的归属者"，别人 DSL 里填你的 id 也解不出（评审 P6 #1）。
+     */
+    private String[] credsFor(NodeInput input, ExecutionContext ctx) {
         Object raw = input.params().get("credentialId");
         if (raw == null) {
             return new String[]{appId, appSecret};
@@ -154,7 +164,7 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "请求了 credentialId=" + credentialId + " 但凭证库不可用（未配置 AGENTFLOW_MASTER_KEY）");
         }
-        Map<String, String> secrets = provider.resolve(credentialId)
+        Map<String, String> secrets = provider.resolve(credentialId, ctx.workflowId())
                 .orElseThrow(() -> new ApiException(ErrorCode.BAD_REQUEST, "凭证不存在或无法解密: credentialId=" + credentialId));
         return new String[]{
                 secrets.getOrDefault("app_id", appId),
@@ -165,13 +175,15 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
     private String resolveContent(NodeInput input) {
         String content = input.paramAsString("content", null);
         if (content != null && !content.isBlank()) {
-            return content;
+            return toHtml(content);
         }
-        // 流水线回退：扫描上游输出取 content（llm.chat 产出）或 text（http.collect 原文）
+        // 流水线回退：body（copy.write 成稿）→ content（llm.chat）→ text（http.collect / article.extract 原文）
         for (Map<String, Object> out : orderedUpstream(input)) {
-            Object c = out.get("content") != null ? out.get("content") : out.get("text");
-            if (c != null && !String.valueOf(c).isBlank()) {
-                return String.valueOf(c);
+            for (String key : new String[] {"body", "content", "text"}) {
+                Object c = out.get(key);
+                if (c != null && !String.valueOf(c).isBlank()) {
+                    return toHtml(String.valueOf(c));
+                }
             }
         }
         return "";
@@ -187,12 +199,74 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
             if (u != null && !String.valueOf(u).isBlank()) {
                 return String.valueOf(u);
             }
+            String fromCover = firstImageUrl(out.get("images"));
+            if (fromCover != null) {
+                return fromCover;
+            }
+        }
+        return "";
+    }
+
+    /** image.cover 的 images[{url,...}] 取第一张远端地址——微信封面素材要先把它下载下来。 */
+    private static String firstImageUrl(Object imagesValue) {
+        if (!(imagesValue instanceof List<?> images)) {
+            return null;
+        }
+        for (Object item : images) {
+            if (item instanceof Map<?, ?> map) {
+                Object url = map.get("url");
+                if (url != null && !String.valueOf(url).isBlank()) {
+                    return String.valueOf(url);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 微信草稿正文必须是 HTML：创作节点产出纯文本，原样提交会被微信压成一整段（换行全丢），
+     * 所以无标签时按段落切分并转义。已带 p/section/br 标签的内容视为用户自己的排版，原样透传。
+     */
+    private static String toHtml(String raw) {
+        String text = raw.trim();
+        if (text.contains("<p") || text.contains("<section") || text.contains("<br")) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String para : text.split("\\n+")) {
+            String p = para.trim();
+            if (!p.isEmpty()) {
+                sb.append("<p>").append(escapeHtml(p)).append("</p>");
+            }
+        }
+        return sb.isEmpty() ? "<p>" + escapeHtml(text) + "</p>" : sb.toString();
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String upstreamString(NodeInput input, String key) {
+        for (Map<String, Object> out : orderedUpstream(input)) {
+            Object v = out.get(key);
+            if (v != null && !String.valueOf(v).isBlank()) {
+                return String.valueOf(v).trim();
+            }
+        }
+        return "";
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
         }
         return "";
     }
 
     /** 上游按节点 id 排序保证多上游时取数确定性（与 DagValidator 字典序同一哲学）。 */
-    private java.util.List<Map<String, Object>> orderedUpstream(NodeInput input) {
+    private static List<Map<String, Object>> orderedUpstream(NodeInput input) {
         return input.upstream().entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .filter(e -> e.getValue() instanceof Map)

@@ -50,4 +50,54 @@ class AgentFlowApplicationTests {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(resp.getBody()).contains("A0404").doesNotContain("Exception");
     }
+
+    @Test
+    void unsupportedHttpMethodReturns405NotInternalError() {
+        ResponseEntity<String> resp = rest.exchange("/api/credentials", HttpMethod.POST,
+                new HttpEntity<>("{}", jsonHeaders()), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(resp.getBody()).contains("A0405").doesNotContain("B0001");
+    }
+
+    @Test
+    void malformedJsonBodyReturns400NotInternalError() {
+        ResponseEntity<String> resp = rest.exchange("/api/workflows", HttpMethod.POST,
+                new HttpEntity<>("{\"name\":", jsonHeaders()), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).contains("A0400").doesNotContain("B0001");
+    }
+
+    @Test
+    void schedulePutWithoutEnabledFieldStillRegistersCron() {
+        long workflowId = createEchoWorkflow();
+        ResponseEntity<String> resp = rest.exchange("/api/workflows/" + workflowId + "/schedule",
+                HttpMethod.PUT, new HttpEntity<>("{\"cron\":\"0 0/5 * * * *\"}", jsonHeaders()), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 旧行为：缺 enabled 被当成 false → 登记请求静默变成撤销，200 却什么都没排上
+        assertThat(resp.getBody()).doesNotContain("\"nextFireAt\":\"\"");
+    }
+
+    @Test
+    void scheduleEnabledWithoutCronReturnsBadRequest() {
+        long workflowId = createEchoWorkflow();
+        ResponseEntity<String> resp = rest.exchange("/api/workflows/" + workflowId + "/schedule",
+                HttpMethod.PUT, new HttpEntity<>("{\"enabled\":true}", jsonHeaders()), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).contains("A0400").doesNotContain("B0001");
+    }
+
+    private long createEchoWorkflow() {
+        ResponseEntity<String> created = rest.exchange("/api/workflows", HttpMethod.POST,
+                new HttpEntity<>("{\"name\":\"基准流程\","
+                        + "\"nodes\":[{\"id\":\"e\",\"type\":\"core.echo\",\"params\":{}}],\"edges\":[]}",
+                        jsonHeaders()), String.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return Long.parseLong(created.getBody().replaceAll("(?s).*\"workflowId\":(\\d+).*", "$1"));
+    }
+
+    private HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        return headers;
+    }
 }

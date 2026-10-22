@@ -24,10 +24,17 @@ management:
       probes:
         enabled: true         # liveness / readiness 分离，K8s 与 compose 健康检查均可用
       show-details: never
+      group:
+        # 探针必须真的反映依赖：只含 readinessState 时 DB 全灭依旧报 UP，编排层会被这个谎话骗到（评审 P6 #4）
+        readiness:
+          include: readinessState,db,ping
+        # liveness 刻意不含 db：依赖抖动应摘流量+等待恢复，不该把进程重启掉（重启解决不了 DB 故障）
+        liveness:
+          include: livenessState
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
 
 agentflow:
   security:
@@ -51,6 +58,10 @@ agentflow:
       app-id: ${WECHAT_APPID:}
       app-secret: ${WECHAT_SECRET:}
       base-url: https://api.weixin.qq.com
+  content:
+    # 成品库根目录：所有产物读写都被约束在此目录内（JdbcContentStore.resolveInside）。
+    # 相对路径按进程工作目录解析；容器/云主机部署务必 env 指向持久卷，否则重启即丢成品。
+    library-dir: ${AGENTFLOW_LIBRARY_DIR:./data/library}
 
 logging:
   pattern:

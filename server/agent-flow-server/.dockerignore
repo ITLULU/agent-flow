@@ -1,0 +1,16 @@
+target/
+**/target/
+data/
+*.log
+*.mv.db
+*.trace.db
+.git/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+.env
+*secret*
+*.pem
+docs/
+*.md

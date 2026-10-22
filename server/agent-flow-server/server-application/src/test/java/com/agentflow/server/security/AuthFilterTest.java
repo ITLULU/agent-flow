@@ -81,12 +81,28 @@ class AuthFilterTest {
         MockHttpServletResponse resp = run(filter, "/api/workflows/1", null, "svc-token", seen);
         assertThat(resp.getStatus()).isEqualTo(200);
         assertThat(seen.get().username()).isEqualTo("service");
+        // 评审 P6 #2：一把静态 token 不得等于全站管理员——它只能碰自己（uid=0）名下的资源
+        assertThat(seen.get().isAdmin()).isFalse();
+        assertThat(seen.get().canAccess(Principal.SYSTEM_UID)).isTrue();
+        assertThat(seen.get().canAccess(42L)).isFalse();
+    }
+
+    @Test
+    void whitelistPathsDoNotGrantAdmin() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
+        AtomicReference<Principal> seen = new AtomicReference<>();
+        assertThat(run(filter, "/api/auth/login", null, null, seen).getStatus()).isEqualTo(200);
+        assertThat(seen.get().isAdmin()).isFalse();
+        // 前缀白名单会被 /api/auth/../workflows 这类路径拿去当跳板：归一化后必须是精确清单里的路径才放行
+        MockHttpServletResponse traversal = run(filter, "/api/auth/../workflows/1", null, null, null);
+        assertThat(traversal.getStatus()).isEqualTo(401);
     }
 
     @Test
     void enabledModeWhitelistsAuthAndHealth() throws Exception {
         AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
         assertThat(run(filter, "/api/auth/login", null, null, null).getStatus()).isEqualTo(200);
+        assertThat(run(filter, "/api/auth/register", null, null, null).getStatus()).isEqualTo(200);
         assertThat(run(filter, "/actuator/health/liveness", null, null, null).getStatus()).isEqualTo(200);
     }
 

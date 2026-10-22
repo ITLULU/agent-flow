@@ -42,6 +42,12 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- P7 可观测：四金指标里 QPS/RT/错误率/饱和度全靠这个出口（评审 P6 #3） -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
 
     <!-- P1 持久层：JDBC + Flyway；本地默认 H2（PG 兼容模式），prod 用 PostgreSQL -->
     <dependency>

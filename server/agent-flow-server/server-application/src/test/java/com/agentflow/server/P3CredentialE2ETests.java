@@ -13,6 +13,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
@@ -40,6 +41,9 @@ import org.springframework.test.context.DynamicPropertySource;
                 // 全局微信凭证留空：执行成功只能来自 credentialId 路径
                 "agentflow.nodes.wechat.app-id=",
                 "agentflow.nodes.wechat.app-secret="})
+// @SpringBootTest 默认把 metrics export 全关（management.defaults.metrics.export.enabled=false），
+// 不显式打开就测不到 /actuator/prometheus——这是 P7-1d 踩到的坑，留注释防再踩
+@AutoConfigureObservability(tracing = false)
 class P3CredentialE2ETests {
 
     private static HttpServer stub;
@@ -198,5 +202,72 @@ class P3CredentialE2ETests {
         }
         // A0400 配置类错误：不可重试（attempts=1），原因可见
         assertThat(detail).contains("FAILED").contains("credentialId=999999").contains("\"attempts\":1");
+    }
+
+    /**
+     * 评审 P6 #1 的钉子：凭证 id 是用户可写的 DSL 参数，B 借 A 的凭证必须解不出来，
+     * 且失败面容与"凭证不存在"一致（不能让人用错误信息探测别人有哪些凭证）。
+     */
+    @Test
+    void anotherUsersCredentialIsNotResolvable() throws Exception {
+        post("/api/auth/register", "{\"username\":\"p7ownerA\",\"password\":\"passw0rd-123\"}", null);
+        String tokenA = extract(post("/api/auth/login",
+                "{\"username\":\"p7ownerA\",\"password\":\"passw0rd-123\"}", null).getBody(), "token");
+        long credentialId = Long.parseLong(extract(put("/api/credentials",
+                "{\"provider\":\"wechat\",\"name\":\"borrow-me\",\"secrets\":{\"app_id\":\"cross-appid\",\"app_secret\":\"cross-secret-777\"}}",
+                tokenA).getBody(), "id"));
+
+        post("/api/auth/register", "{\"username\":\"p7thiefB\",\"password\":\"passw0rd-123\"}", null);
+        String tokenB = extract(post("/api/auth/login",
+                "{\"username\":\"p7thiefB\",\"password\":\"passw0rd-123\"}", null).getBody(), "token");
+
+        String dsl = """
+                {"name":"借别人的钥匙","nodes":[{"id":"w","type":"wechat.draft",
+                 "params":{"credentialId":CRED,"title":"T","content":"正文"}}],"edges":[]}
+                """.replace("CRED", String.valueOf(credentialId));
+        long workflowId = Long.parseLong(extract(post("/api/workflows", dsl, tokenB).getBody(), "workflowId"));
+        long executionId = Long.parseLong(extract(
+                post("/api/workflows/" + workflowId + "/executions", "{}", tokenB).getBody(), "executionId"));
+
+        String detail = null;
+        for (int i = 0; i < 20; i++) {
+            detail = get("/api/executions/" + executionId, tokenB).getBody();
+            if (detail != null && detail.contains("FAILED")) {
+                break;
+            }
+            TimeUnit.MILLISECONDS.sleep(200);
+        }
+        assertThat(detail).contains("FAILED").contains("credentialId=" + credentialId)
+                .doesNotContain("cross-appid").doesNotContain("cross-secret-777");
+        synchronized (REQUEST_LOG) {
+            assertThat(REQUEST_LOG).noneSatisfy(entry ->
+                    assertThat(entry).contains("appid=cross-appid"));
+        }
+    }
+
+    /** 评审 P6 #3：四金指标里"闸门饱和度/执行耗时/成功失败"必须能从 /actuator/prometheus 抓到。 */
+    @Test
+    void prometheusEndpointExposesExecutionMetrics() throws Exception {
+        post("/api/auth/register", "{\"username\":\"p7metrics\",\"password\":\"passw0rd-123\"}", null);
+        String token = extract(post("/api/auth/login",
+                "{\"username\":\"p7metrics\",\"password\":\"passw0rd-123\"}", null).getBody(), "token");
+        String dsl = """
+                {"name":"指标冒烟","nodes":[{"id":"e","type":"core.echo","params":{"text":"hi"}}],"edges":[]}""";
+        long workflowId = Long.parseLong(extract(post("/api/workflows", dsl, token).getBody(), "workflowId"));
+        long executionId = Long.parseLong(extract(
+                post("/api/workflows/" + workflowId + "/executions", "{}", token).getBody(), "executionId"));
+        for (int i = 0; i < 20; i++) {
+            String detail = get("/api/executions/" + executionId, token).getBody();
+            if (detail != null && (detail.contains("SUCCESS") || detail.contains("FAILED"))) {
+                break;
+            }
+            TimeUnit.MILLISECONDS.sleep(200);
+        }
+
+        String metrics = get("/actuator/prometheus", token).getBody();
+        assertThat(metrics).contains("agentflow_execution_submitted")
+                .contains("agentflow_execution_finished")
+                .contains("agentflow_execution_duration_seconds")
+                .contains("agentflow_exec_slots_available");
     }
 }

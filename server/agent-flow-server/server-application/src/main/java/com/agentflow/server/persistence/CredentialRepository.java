@@ -53,9 +53,10 @@ public class CredentialRepository {
                 id).stream().findFirst();
     }
 
-    public Optional<String> findSecretEnc(long id) {
-        return jdbc.query("SELECT secret_json_enc FROM user_credentials WHERE id = ?",
-                (rs, i) -> rs.getString(1), id).stream().findFirst();
+    /** 归属者限定的密文读取：owner 不匹配即查不到，跨用户借用密钥在执行链路上拿不到密文（评审 P6 #1）。 */
+    public Optional<String> findSecretEncOwned(long id, long ownerId) {
+        return jdbc.query("SELECT secret_json_enc FROM user_credentials WHERE id = ? AND owner_id = ?",
+                (rs, i) -> rs.getString(1), id, ownerId).stream().findFirst();
     }
 
     public int deleteOwned(long id, long ownerId) {

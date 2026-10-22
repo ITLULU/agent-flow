@@ -88,8 +88,15 @@ public class WorkflowController {
     public ApiResponse<Map<String, Object>> schedule(@PathVariable long id, @RequestBody String rawJson) {
         requireVisible(id);
         JsonNode node = parseNode(rawJson);
-        String next = scheduleService.setSchedule(id,
-                node.path("cron").asText(null), node.path("enabled").asBoolean(false));
+        String cron = node.path("cron").asText(null);
+        // 省略 enabled 时默认为"开"：PUT 带 cron 的语义是登记调度，若默认 false 会静默变成撤销调度，
+        // 调用方拿到 200 却以为定时已生效。显式关闭必须写 enabled:false（或走 DELETE）。
+        boolean hasCron = cron != null && !cron.isBlank();
+        boolean enabled = node.has("enabled") ? node.path("enabled").asBoolean(false) : hasCron;
+        if (enabled && !hasCron) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "enabled=true 时 cron 不能为空");
+        }
+        String next = scheduleService.setSchedule(id, hasCron ? cron : null, enabled);
         return ApiResponse.ok(Map.of("workflowId", id, "nextFireAt", next == null ? "" : next));
     }
 

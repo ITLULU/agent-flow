@@ -51,7 +51,9 @@ class P3ScheduleTests {
     @Test
     void registerBackdateFireThenNoDoubleFire() throws Exception {
         long id = newEchoWorkflow();
-        String next = schedule.setSchedule(id, "0 0/5 * * * *", true);
+        // 用"每天 03:00"而不是"每 5 分钟"：轮询等异步执行落库最多几秒，若恰好跨过 5 分钟边界，
+        // 第二次扫描再领发一次是正确行为，测试就会假红——周期必须远大于用例耗时才谈"不重复领发"
+        String next = schedule.setSchedule(id, "0 0 3 * * *", true);
         assertThat(next).isNotBlank();
         Long due = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow WHERE id = ? AND schedule_enabled = TRUE AND next_fire_at IS NOT NULL",
