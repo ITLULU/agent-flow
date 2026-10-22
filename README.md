@@ -150,4 +150,14 @@ AF_USER=<你> AF_PASS=<8-64位> scripts/run-creation.sh --mode xhs --topic "秋�
 
 升级 / 回滚：先 `git -C /path/to/agent-flow checkout <good-sha>` 并按上面第 1 步重建镜像，再回 compose 目录 `docker compose up -d`（镜像 tag 不变时加 `--force-recreate`）；schema 只由 Flyway 向前迁移，回滚旧镜像前需确认迁移是向后兼容的（破坏性变更要配套备份 `docker compose exec agent-flow-db pg_dump -U agentflow agentflow > backup.sql`）。
 
+备份与恢复演练（评审 P6 #9）：用 `scripts/backup-postgres.sh`，不要手敲 `pg_dump`——口令不落到任何文件，脚本只借 compose 进容器执行。
+
+```bash
+bash scripts/backup-postgres.sh backup                 # pg_dump -Fc → <compose>/backups/agentflow-<时间戳>.dump（0600，保留最近 7 份）
+bash scripts/backup-postgres.sh verify <dump>          # 只验结构可读，不代表能恢复
+bash scripts/backup-postgres.sh drill                  # 恢复进临时库 agentflow_drill_*，逐表计数比对后自动 DROP
+```
+
+可覆盖：`--compose DIR`（compose 目录）、`--out DIR`（dump 目录）、`--keep N`、`--file <dump>`，以及环境变量 `SOURCE_DB`（默认 `agentflow`；演练时可指向 scratch 库）。`drill` 建/删临时库，任何失败路径（含 `pg_restore` 报错）都会清掉临时库，不在实例里留垃圾。口径提醒：**没做过恢复演练的备份等于没有备份**；本项目的自动化（cron 定时、异地副本、失败告警）仍未接，"备份存在"≠"每天有新备份"。
+
 已知排查点：本机 `docker` CLI 在 `~/.docker/bin`（不在默认 PATH）；宿主 18080 已被 RocketMQ dashboard 占用，临时探活换端口；启动日志残留 1 条 `AliyunConfigFilter - region is not set up yet` ERROR，来自 spring-ai-alibaba 传递引入、本项目并未使用的 nacos-client（见第 4 节 P6 议程）。

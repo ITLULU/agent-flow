@@ -89,7 +89,7 @@
    - 探针：**实测**停掉 `agent-flow-db-1` 后 `curl :8080/actuator/health/readiness` 仍返回 `{"status":"UP"}`（默认 readiness 组只含 readinessState，DB 指示器不在其中）⇒ compose 每 15s 的健康检查在数据库全灭时依旧判 healthy，`restart: unless-stopped` 永远等不到重启，编排层也永远不会摘掉这个实例。**健康检查是一个会说谎的绿灯**：故障时用户收到 500，运维侧看到的仍是"健康"。修复成本 ≈ 20 行配置：显式 `management.endpoint.health.group.readiness.include: readinessState,db,ping`。
    - 告警：无任何阈值/告警配置（compose 无 alertmanager，仓库无 runbook）。缺项记 ⚠️。
    - 日志：结构化 pattern + `traceId=%X{traceId}` + 响应头 `X-Trace-Id` ✅；但无采样/无慢请求日志（>1s 不打点），⚠️。
-4. **发布与故障恢复**：`server.shutdown=graceful` + `timeout-per-shutdown-phase: 20s` + `stop_grace_period: 30s` ✅，昨天实测优雅停机 1s；依赖重启行为：**PG 重启后应用自动恢复（Hikari 重建连接）✅，但期间 readiness 已谎报 UP**；备份仅有 README 里一条 `pg_dump` 手工命令，**无自动备份、无恢复演练** ⇒ ⚠️（DBA 域 5）。
+4. **发布与故障恢复**：`server.shutdown=graceful` + `timeout-per-shutdown-phase: 20s` + `stop_grace_period: 30s` ✅，昨天实测优雅停机 1s；依赖重启行为：**PG 重启后应用自动恢复（Hikari 重建连接）✅，但期间 readiness 已谎报 UP**；备份：已有 `scripts/backup-postgres.sh`（backup/verify/drill）并完成一次内容级恢复演练（PROGRESS 10-22 22:25）；**仍未自动定时、未异地** ⇒ 🟡（DBA 域 5，自动化未做）。
 5. **单点清单**：单实例服务 + 单实例 PG（无副本、无流复制）+ **本地文件成品库**（`library-dir`，容器卷）+ 进程内限流窗口（`RateLimitFilter.windows`，多实例各自计数 ⇒ 实际限额=120×N，注释已自认）+ 进程内 Semaphore 闸门。前五项目前都接受为"自用形态"，写进 README 局限即加分项。
 6. **流量突增防御**：入口有固定窗限流 ✅（但见安全 2 的共享桶副作用）；下游无熔断/无舱壁（LLM 与微信共用同一节点线程模型，无独立配额），无 MQ 削峰 ⇒ 上游一慢，16 个槽位瞬间占满，后续全部排队，**没有任何开关可以丢任务保新任务**。🔶
 7. **弹性**：人工扩缩；扩容后无预热（凭证缓存/连接池冷启动）；`MAX_CONCURRENT_EXECUTIONS=16` 是**编译期常量**（ExecutionManager.java:26），不可配置 ⇒ 每次改容量都要重新构建镜像，运维上等于"容量不能应急调"。⚠️ 应外置为 `agentflow.exec.max-concurrent`。
@@ -102,7 +102,7 @@
    判定句式：**当前实现第一断裂点在"进程内执行闸门 + 无全局配额"，撑到十万档需替换为「MQ 削峰 + 分布式令牌（Redis/DB 全局配额）+ 读写分离 + PgBouncer + 成品库上对象存储」，依据 `16/45s=0.36`、`实例数×20>100`、`多实例各自 Semaphore(16) 与各自 120/min`。**
 3. **访问模式审查**：JdbcTemplate 全参数化 ✅ 无拼接；无 `SELECT *`（投影显式，见 CredentialRepository）✅；`listByOwner` 无分页且按 owner 全量返回 —— 成品库/执行历史同类查询在数据量上来后是**无界结果集**，⚠️；批量写：`node_runs` 逐行写（执行链路每节点一次 UPDATE/INSERT），十万档下 ≈ 每执行 8 次往返，需批处理或改异步聚合，⚠️；连接获取全部走 Hikari ✅ 无 DriverManager 裸连。
 4. **一致性与迁移**：Flyway 3 条迁移、prod 启动即跑 ✅（**注意：Flyway 在启动阶段执行 DDL，滚动发布时新旧版本共存窗口内的 DDL 兼容性需在加不兼容列前先走 expand-contract**）⚠️；多存储写入顺序：DB 记录 → 文件成品库，**文件写失败仅日志，无补偿入口**（README 挂账）⇒ 半套数据风险 ⚠️；向量/倒排：本项目无，跨档无冲突。
-5. **持久性与容灾**：单机 PG、卷 `pgdata`、无自动备份、无恢复演练 ⇒ 按 skill 判据"单机无备份 = 🛑"，**但**当前数据可重建（0 用户/0 工作流）且属个人创作工具，故记 🔶（上线对外即升 🛑），修复动作：cron + `pg_dump` 到对象存储 + 一次恢复演练记录，成本 0.5 人日。
+5. **持久性与容灾**：单机 PG、卷 `pgdata`；恢复演练 10-22 已做且验到行级 md5 与"恢复库能被应用直接消费"（`scripts/backup-postgres.sh drill`），但**自动定时与异地副本仍未做** ⇒ 按 skill 判据"单机无备份 = 🛑"，因当前数据可重建（prod 库 0 用户/0 工作流）且属个人创作工具，记 🟡（上线对外即升 🛑）。剩余修复动作：cron 定时 + dump 送对象存储 + 失败告警，成本 0.5 人日。
 6. **凭证主密钥治理**：AES-256-GCM 逐条随机 IV ✅；**无 key id、无轮换机制** ⇒ 主密钥泄露/轮换需全量重加密，运维上目前没有该流程 ⚠️。
 
 ### 🔒 安全（独立成节）
@@ -142,7 +142,7 @@
 | 6 | 🔶 → ✅ P7-2d | 安全/可用性 | 匿名共享 uid=0 桶 ⇒ 120/min 可被打死全站登录；公开登录仅 2 rps | 原 RateLimitFilter.java:59；现按 `u:uid`/`svc`/`ip:x:auth` 三桶 | 研发 | 实际口径修正：`AuthFilter`(+10) 在本过滤器(+20) 之前，匿名进不了业务 API，真正挤在 uid=0 的是**服务通道 + `/api/auth/**`**；已拆 svc 独立桶 + auth 按 IP 独立阈值（`rate-limit-auth-per-minute=30`，`trust-forwarded-for` 默认 false）；`P7RateLimitBucketE2ETests` 反向验证（换 IP 立刻可用、auth 打满不影响 svc 额度）；0.5 人日 ✅ |
 | 7 | 🔶 | 正确性 | TIMEOUT 后节点继续跑并真实发布草稿 → 重复内容/重复扣费 | WorkflowEngine.java:43,137；DashScopeImageClient.java:73；Wanxiang:157 | 研发 | publish 节点按 (executionId,nodeId) 幂等键 + 中断响应；1 人日 |
 | 8 | 🔶 → ✅ P7-2a | 安全/引导 | 开放注册 + 首用户即 admin ⇒ 抢注即接管；白名单用原始 URI 前缀匹配 | 原 AuthService.java:15；现 :42 恒为 `user` + `AdminBootstrap.java:52` | 研发 | ~~部署即关闭注册或预置管理员~~ 实际：注册永不授 admin，管理员由 `AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME/PASSWORD(_FILE)` 显式引导；白名单精确路径见 P7-1b；0.5 人日 ✅ |
-| 9 | 🔶 | 容灾 | 单机 PG 无自动备份、无恢复演练（对外即 🛑） | README 仅手工 pg_dump | DBA | 每日 pg_dump 到对象存储 + 一次恢复演练；0.5 人日 |
+| 9 | 🔶 → 🟡 P7-2d#9 | 容灾 | 单机 PG 无自动备份、无恢复演练（对外即 🛑） | 原 README 仅手工 pg_dump；现 `scripts/backup-postgres.sh`（backup/verify/drill）+ 真实演练记录见 PROGRESS 22:25 | DBA | 恢复演练**已做且验到内容级**：有数据库 dump 20474B ⇒ 逐表计数 7/7、行级 md5 4/4（含密文 blob）⇒ 恢复库起服务后登录/读流/解密凭证全通，反向验证（垃圾文件、截断 dump）能让 verify 与 drill 双双退出 1，并暴露修复了 drill 失败漏临时库的缺陷。**仍未做**：cron 定时、异地/对象存储副本、`artifact` 目录配套备份（演练时 artifact=0）、备份失败告警 ⇒ 故本项只到 🟡，自动化补齐前"备份存在"不等于"每天有新备份" |
 | 10 | ⚠️ | 容量 | 执行闸门 16 且硬编码不可配，0.36 exec/s，排队无超时 | ExecutionManager.java:26,43 | 研发/运维 | 外置 `agentflow.exec.max-concurrent` + acquire 超时 + 队列上限（429/503）；1 人日 |
 | 11 | ⚠️ | 容量/DB | 多实例后 `实例×20 > PG 100`；无全局配额；限流各自计数 | application.yml:74-79；RateLimitFilter 注释 :22 | DBA | PgBouncer + 全局令牌（Redis）；十万档必做 |
 | 12 | ⚠️ | 一致性 | 成品库本地文件 + 列表只读本机；DB 写成功/文件失败无补偿 | application.yml:57；LocalArchiveNodeExecutor | 研发 | 对象存储 + 补偿入口（P7） |
