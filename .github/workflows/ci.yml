@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 jobs:
@@ -24,7 +24,9 @@ jobs:
         run: mvn -B verify
 
       - name: 配置口径冒断言（本地默认不得开启鉴权，防止误改默认值上线）
-        run: grep -q "enabled: false" server-application/src/main/resources/application.yml
+        # 值里含冒号+空格，必须用块标量：plain scalar 会被 YAML 当成映射解析，整个 workflow 失效
+        run: |
+          grep -q "enabled: false" server-application/src/main/resources/application.yml
 
       - name: 密钥泄漏扫描（禁止提交真实 key）
         run: |
