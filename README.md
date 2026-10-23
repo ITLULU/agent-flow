@@ -80,6 +80,10 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.exec.max-concurrent` | `${AGENTFLOW_EXEC_MAX_CONCURRENT:16}` | 单实例同时执行的工作流数（P7-3#10 外置）；按节点真实耗时压测后再调，改配置重启即生效，无需重建镜像 |
 | `agentflow.exec.max-queued` | `${AGENTFLOW_EXEC_MAX_QUEUED:64}` | 允许等待执行槽的条数；超过即同步 `429/A0429`（不创建执行记录），避免无上限静默积压。`0` = 只跑不排 |
 | `agentflow.exec.acquire-timeout` | `${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}` | 排队等槽上限；超时执行落 `FAILED` 并释放指标 `agentflow.execution.rejected{reason="acquire_timeout"}`，不留永远 `RUNNING` 的记录 |
+| `agentflow.resilience.enabled` | `${AGENTFLOW_RESILIENCE_ENABLED:true}` | **下游依赖舱壁/熔断总开关（P7-3#17）**；关闭后节点直连（仅限排障，生产保持开启） |
+| `agentflow.resilience.dependencies.<name>.max-concurrent` | llm 8 / image 4 / wechat 4 / xhs 4 / web 8 | 每个依赖独立的进程内并发上限；满舱壁立即 `C0004`（不排队、不打下游），防止一个慢依赖占满全部执行槽 |
+| `agentflow.resilience.dependencies.<name>.failure-threshold` | llm/image 5，wechat/xhs 3，web 10 | 连续"依赖侧失败"（仅 C0001 连接拒绝 / C0002 超时 / C0003 协议错误）达到阈值即熔断；A04xx 等客户端错误视为对端可达并重置计数 |
+| `agentflow.resilience.dependencies.<name>.open-duration` | 30s（wechat/xhs 60s） | 熔断冷却时长；到期后放行 1 个半开探测，成功闭合、失败重新 open。open 期间节点直接 `C0004`，引擎判不可重试 |
 
 ## 3. 架构与关键决策
 
@@ -99,7 +103,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、下游熔断/舱壁（#17）、微信真凭证外发未验。主密钥轮换（#16）已于 P7-3 完成。
+> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、微信真凭证外发未验。主密钥轮换（#16）与下游舱壁/熔断（#17）已于 P7-3 完成。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -112,8 +116,8 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | 执行判 TIMEOUT 后节点仍继续跑并真实发布（重复草稿） | 🔶 见评审 #7 | P7-2（1 人日） |
 | ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
 | ~~主密钥无 kid/轮换流程（换密钥后旧凭证全废）~~ | ✅ P7-3#16 已修：primary+previous 双读单写，新密文带 kid，旧密文首次读取自动重封装；容器实测轮换前凭证执行成功、清空 previous 后仍成功 | - |
-| 下游无熔断/舱壁，一个慢依赖可占满执行槽 | ⚠️ 见评审 #17 | P7-3 |
-| 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 | ⚠️ 单实例假设 | 十万档（评审 §5） |
+| ~~下游无熔断/舱壁，一个慢依赖可占满执行槽~~ | ✅ P7-3#17 已修：`DependencyGuard` 在节点注册处按依赖（llm/image/wechat/xhs/web）包舱壁+熔断；连续 C0001–C0003 触发 open，期间 `C0004` 快速失败且不打下游，冷却后单探测恢复；A04xx 不算依赖失败。指标 `agentflow.dependency.state/trips/rejected`，真实 HTTP 桩 E2E 验证 open 期间下游零请求 | - |
+| 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 / 舱壁与熔断各自计数 | ⚠️ 单实例假设 | 十万档（评审 §5） |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
 | ~~cron 定时触发（目前仅手动 API 触发）~~ | ✅ P3 已交付（next_fire_at CAS 领发 + 节拍参数化，见 docs/PROGRESS.md） | - |

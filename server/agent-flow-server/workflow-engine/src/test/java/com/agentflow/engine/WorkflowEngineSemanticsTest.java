@@ -141,6 +141,27 @@ class WorkflowEngineSemanticsTest {
         }
     }
 
+    /** 熔断快速失败：与入参错误同属"重试无意义"，验证不会对 C0004 再打三轮下游。 */
+    static class CircuitOpenExecutor implements NodeExecutor {
+        final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public String type() {
+            return "t.circuit-open";
+        }
+
+        @Override
+        public NodeOutput execute(NodeInput input, ExecutionContext ctx) {
+            calls.incrementAndGet();
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "依赖 llm 熔断中");
+        }
+
+        @Override
+        public RetryPolicy retryPolicy() {
+            return new RetryPolicy(2, 1L);
+        }
+    }
+
     /** sleep 超过自身 timeout：验证引擎层 orTimeout 生效。 */
     static class SlowExecutor implements NodeExecutor {
         @Override
@@ -212,6 +233,19 @@ class WorkflowEngineSemanticsTest {
         assertThat(r.nodeResults().get(0).status()).isEqualTo(NodeStatus.FAILED);
         assertThat(r.nodeResults().get(0).reason()).contains("参数错误");
         assertThat(finishedStatuses).containsExactly("FAILED");
+    }
+
+    @Test
+    void circuitOpenFailureIsNotRetriedAndFailsFast() {
+        CircuitOpenExecutor breaker = new CircuitOpenExecutor();
+        registry.register(breaker);
+
+        ExecutionResult r = engine.run(99L, 1L,
+                chain(new NodeDef("n1", "t.circuit-open", Map.of())), "trace-2b");
+
+        assertThat(breaker.calls.get()).isEqualTo(1);
+        assertThat(r.status()).isEqualTo(ExecutionStatus.FAILED);
+        assertThat(r.nodeResults().get(0).reason()).contains("熔断");
     }
 
     @Test

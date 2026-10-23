@@ -35,6 +35,7 @@ public class GlobalExceptionHandler {
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case METHOD_NOT_ALLOWED -> HttpStatus.METHOD_NOT_ALLOWED;
             case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+            case DEPENDENCY_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             default -> HttpStatus.BAD_GATEWAY; // C 类外部依赖错误
         };
         log.warn("业务异常 code={} msg={}", code.code(), ex.getMessage());

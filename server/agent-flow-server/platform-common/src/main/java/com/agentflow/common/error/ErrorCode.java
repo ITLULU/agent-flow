@@ -17,6 +17,7 @@ public enum ErrorCode {
     UPSTREAM_REJECTED("C0001", "外部依赖拒绝连接"),
     UPSTREAM_TIMEOUT("C0002", "外部依赖调用超时"),
     UPSTREAM_PROTOCOL_ERROR("C0003", "外部依赖协议异常"),
+    DEPENDENCY_UNAVAILABLE("C0004", "外部依赖熔断或并发舱壁已满"),
     WORKFLOW_INVALID("C0500", "工作流定义不合法");
 
     private final String code;

@@ -176,7 +176,8 @@ public class WorkflowEngine {
     private boolean isRetryable(Throwable t) {
         if (t instanceof ApiException ae) {
             return switch (ae.errorCode()) {
-                case BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, WORKFLOW_INVALID -> false;
+                case BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, WORKFLOW_INVALID,
+                     DEPENDENCY_UNAVAILABLE -> false;
                 default -> true;
             };
         }
