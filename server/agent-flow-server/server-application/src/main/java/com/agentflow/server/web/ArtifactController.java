@@ -7,12 +7,16 @@ import com.agentflow.server.persistence.JdbcContentStore;
 import com.agentflow.server.security.EndpointSensitivity;
 import com.agentflow.server.security.PrincipalContext;
 import com.agentflow.server.security.Sensitivity;
+import com.agentflow.server.storage.ArtifactSyncService;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * 归属隔离沿用工作流口径：非属主（且非 admin）访问他人成品一律 404，不区分 403/404，防 id 枚举探测。
  * 文件下载只允许成品目录内的相对路径——穿越校验收敛在 {@link JdbcContentStore#resolveFile}，
- * 并额外要求路径出现在 filesOf() 白名单里（双保险：即便 normalize 漏判也不会读到别人的目录）。
+ * 并额外要求路径出现在"磁盘实况 ∪ 同步清单"白名单里（双保险：即便 normalize 漏判也不会读到别人的目录）。
  */
 @RestController
 @RequestMapping("/api/artifacts")
@@ -38,9 +42,11 @@ public class ArtifactController {
     private static final int DEFAULT_LIMIT = 20;
 
     private final JdbcContentStore store;
+    private final ArtifactSyncService sync;
 
-    public ArtifactController(JdbcContentStore store) {
+    public ArtifactController(JdbcContentStore store, ArtifactSyncService sync) {
         this.store = store;
+        this.sync = sync;
     }
 
     @EndpointSensitivity(Sensitivity.USER)
@@ -100,26 +106,67 @@ public class ArtifactController {
         return ApiResponse.ok(store.repair(id));
     }
 
-    /** 下载单个产物文件（article.md / note.txt / assets/cover-1-3x4.png …）。 */
+    /** 待同步清单：本地已有、远端还缺一套副本的成品（sync_state ≠ synced）。 */
+    @EndpointSensitivity(Sensitivity.USER)
+    @GetMapping("/sync/pending")
+    public ApiResponse<Map<String, Object>> syncPending(
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit,
+            @RequestParam(required = false) Long beforeId) {
+        int size = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> items = store.pendingSync(PrincipalContext.get().uid(), size, beforeId);
+        Long nextCursor = items.size() == size
+                ? ((Number) items.get(items.size() - 1).get("id")).longValue() : null;
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("enabled", sync.enabled());
+        page.put("items", items);
+        page.put("nextCursor", nextCursor);
+        return ApiResponse.ok(page);
+    }
+
+    /** 手动把一条成品推到对象存储（本地仍是交付面）。失败会把原因写进 sync_error，且不动 file_state。 */
+    @EndpointSensitivity(Sensitivity.USER)
+    @PostMapping("/{id}/sync")
+    public ApiResponse<Map<String, Object>> sync(@PathVariable long id) {
+        requireVisible(id);
+        return ApiResponse.ok(sync.sync(id));
+    }
+
+    /**
+     * 下载单个产物文件（article.md / note.txt / assets/cover-1-3x4.png …）。
+     *
+     * 白名单 = 磁盘实况 ∪ 同步清单（两者都由服务端生成，用户输入不在里面）：本地被删或换实例（卷是空的）时，
+     * 远端副本仍能被读到；两边都没有 ⇒ 404。相对路径先过 resolveFile 的穿越校验，再比白名单。
+     */
     @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/{id}/file")
-    public ResponseEntity<FileSystemResource> file(@PathVariable long id, @RequestParam String path) {
-        requireVisible(id);
-        List<String> allowed = store.filesOf(id);
+    public ResponseEntity<Resource> file(@PathVariable long id, @RequestParam String path) {
+        Map<String, Object> row = requireVisible(id);
+        List<String> allowed = new ArrayList<>(store.filesOf(id));
+        allowed.addAll(sync.manifestKeys(row));
         if (!allowed.contains(path)) {
-            throw new ApiException(ErrorCode.NOT_FOUND, "成品文件不存在: " + path);
+            throw new ApiException(ErrorCode.NOT_FOUND, "成品文件不存在: " + path); // 穿越路径永远进不了白名单 ⇒ 与不存在同为 404
         }
-        Path target = store.resolveFile(id, path);
-        if (!Files.isRegularFile(target)) {
+        Path target = store.resolveFile(id, path); // 白名单之外再兜一层穿越校验
+        if (Files.isRegularFile(target)) {
+            return ResponseEntity.ok()
+                    .contentType(mediaType(path))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                            .filename(target.getFileName().toString())
+                            .build().toString())
+                    .contentLength(sizeOf(target))
+                    .body(new FileSystemResource(target));
+        }
+        byte[] remote = sync.fetchRemote(id, row, path);
+        if (remote == null) {
             throw new ApiException(ErrorCode.NOT_FOUND, "成品文件不存在: " + path);
         }
         return ResponseEntity.ok()
                 .contentType(mediaType(path))
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(target.getFileName().toString())
+                        .filename(Path.of(path).getFileName().toString())
                         .build().toString())
-                .contentLength(sizeOf(target))
-                .body(new FileSystemResource(target));
+                .contentLength(remote.length)
+                .body(new ByteArrayResource(remote));
     }
 
     private Map<String, Object> requireVisible(long id) {

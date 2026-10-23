@@ -21,8 +21,8 @@ class EndpointSensitivityContractTest {
 
     @Test
     void everyControllerRouteIsClassified() {
-        // 1 ping + 2 auth + 8 workflow + 3 credential + 6 artifact
-        assertThat(catalog.entries()).hasSize(20);
+        // 1 ping + 2 auth + 8 workflow + 3 credential + 8 artifact
+        assertThat(catalog.entries()).hasSize(22);
         assertThat(catalog.entries()).allSatisfy(e -> assertThat(e.level()).isNotNull());
     }
 
@@ -36,6 +36,9 @@ class EndpointSensitivityContractTest {
         // 补偿是写操作，但只影响属主自己的成品目录，不碰密钥也不外发 ⇒ 与下载同档
         assertThat(entry("GET", "/api/artifacts/incomplete").level()).isEqualTo(Sensitivity.USER);
         assertThat(entry("POST", "/api/artifacts/{id}/repair").level()).isEqualTo(Sensitivity.USER);
+        // 同步只推属主自己的成品到已配置的远端桶，不外发密钥、不读别人的目录 ⇒ 与 repair 同档
+        assertThat(entry("GET", "/api/artifacts/sync/pending").level()).isEqualTo(Sensitivity.USER);
+        assertThat(entry("POST", "/api/artifacts/{id}/sync").level()).isEqualTo(Sensitivity.USER);
         assertThat(entry("GET", "/api/ping").level()).isEqualTo(Sensitivity.USER);
         assertThat(entry("POST", "/api/auth/login").level()).isEqualTo(Sensitivity.PUBLIC);
     }

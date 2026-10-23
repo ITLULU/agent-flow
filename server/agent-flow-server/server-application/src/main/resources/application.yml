@@ -69,6 +69,21 @@ agentflow:
     # 成品库根目录：所有产物读写都被约束在此目录内（JdbcContentStore.resolveInside）。
     # 相对路径按进程工作目录解析；容器/云主机部署务必 env 指向持久卷，否则重启即丢成品。
     library-dir: ${AGENTFLOW_LIBRARY_DIR:./data/library}
+    storage:
+      # 成品 → 对象存储（S3 兼容：MinIO/OSS/AWS）副本同步（评审 P7-3#12b）。默认关：
+      # 本地卷是交付面，远端只是"换实例/重建卷也不丢"的副本，不开时一个字节也不出网。
+      # 开启后端点/桶/密钥必填且齐（否则启动即失败），密钥只从环境变量注入，永不写进 yml/compose 明文。
+      enabled: ${AGENTFLOW_STORAGE_ENABLED:false}
+      endpoint: ${AGENTFLOW_STORAGE_ENDPOINT:}
+      bucket: ${AGENTFLOW_STORAGE_BUCKET:}
+      region: ${AGENTFLOW_STORAGE_REGION:us-east-1}
+      access-key: ${AGENTFLOW_STORAGE_ACCESS_KEY:}
+      secret-key: ${AGENTFLOW_STORAGE_SECRET_KEY:}
+      key-prefix: ${AGENTFLOW_STORAGE_KEY_PREFIX:artifacts}
+      connect-timeout-ms: ${AGENTFLOW_STORAGE_CONNECT_TIMEOUT_MS:5000}
+      request-timeout-ms: ${AGENTFLOW_STORAGE_REQUEST_TIMEOUT_MS:30000}
+      sweep-interval-ms: ${AGENTFLOW_STORAGE_SWEEP_INTERVAL_MS:60000}
+      sweep-initial-delay-ms: ${AGENTFLOW_STORAGE_SWEEP_INITIAL_DELAY_MS:15000}
   exec:
     # 执行闸门（评审 P7-3 #10）：容量/排队/等待上限运行期可调，应急扩缩不必重建镜像。
     # max-queued 是允许等待的条数：超过即 429，而不是无上限静默排队；0 表示只跑不排。

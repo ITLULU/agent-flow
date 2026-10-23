@@ -8,7 +8,6 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -236,8 +235,8 @@ class ArtifactIntegrityE2ETests {
         Files.delete(dir.resolve("article.md"));
         Files.delete(dir.resolve("meta.json"));
         // 反向验证：下载接口真的读盘——文件没了就 404，不会拿 DB 里的正文冒充产物
-        assertThat(getBytes("/api/artifacts/" + artifactId
-                + "/file?path=" + URLEncoder.encode("article.md", StandardCharsets.UTF_8), token)
+        // （路径用前端实际传的原始形态；URL 编码过的 "/" 会被 RestTemplate 二次编码，让断言变成假绿）
+        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=article.md", token)
                 .getStatusCode().value()).isEqualTo(404);
 
         ResponseEntity<String> repaired = post("/api/artifacts/" + artifactId + "/repair", "{}", token);
@@ -280,8 +279,7 @@ class ArtifactIntegrityE2ETests {
 
         // 缺的图不会被文本补偿伪造出来
         assertThat(getBytes("/api/artifacts/" + artifactId
-                + "/file?path=" + URLEncoder.encode("assets/cover-1-3x4.png", StandardCharsets.UTF_8), token)
-                .getStatusCode().value()).isEqualTo(404);
+                + "/file?path=assets/cover-1-3x4.png", token).getStatusCode().value()).isEqualTo(404);
     }
 
     /** 补偿是写操作：非属主既看不见（404 统一口径），也不能借 repair 探别人的目录。 */
@@ -293,5 +291,24 @@ class ArtifactIntegrityE2ETests {
         String other = login("integrityVoyeur");
         assertThat(post("/api/artifacts/" + artifactId + "/repair", "{}", other).getBody()).contains("A0404");
         assertThat(get("/api/artifacts/incomplete", other).getBody()).contains("\"items\":[]");
+    }
+
+    /**
+     * 对象存储默认关（本类没配 agentflow.content.storage.*）：同步入口必须如实说"未启用"，
+     * 待同步清单要带 enabled=false，而不是回一个空列表让人以为"远端都齐了"。
+     * 关闭态也不建客户端——真凭证缺失时静默出网是最难查的配置事故。
+     */
+    @Test
+    void syncSurfaceStaysClosedAndHonestWhenStorageDisabled() throws Exception {
+        String token = login("integrityNoStorage");
+        long artifactId = runPipeline(token);
+
+        // enabled=false 是唯一的"为什么远端还没有"解释；列表仍如实列出这条成品（它确实一份都没推）
+        assertThat(get("/api/artifacts/sync/pending", token).getBody())
+                .contains("\"enabled\":false").contains("\"sync_state\":\"local\"")
+                .contains("\"id\":" + artifactId);
+        ResponseEntity<String> resp = post("/api/artifacts/" + artifactId + "/sync", "{}", token);
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(resp.getBody()).contains("对象存储未启用");
     }
 }

@@ -94,6 +94,11 @@ curl -s -o article.md "$BASE_URL/api/artifacts/3/file?path=article.md" -H "Autho
 # ⑥ 完整性核对与补偿（P7-3#12a）：半套成品看得见，文本能重建，缺图如实报
 curl -s "$BASE_URL/api/artifacts/incomplete" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | {id,title,file_state,file_error}'
 curl -s -X POST "$BASE_URL/api/artifacts/3/repair" -H "Authorization: Bearer $TOKEN" | jq '.data | {state,restored,missing}'
+# ⑦ 远端副本（P7-3#12b，需 agentflow.content.storage.enabled=true）：待同步清单 + 手动推送
+curl -s "$BASE_URL/api/artifacts/sync/pending" -H "Authorization: Bearer $TOKEN" | jq '.data | {enabled, items: [.items[] | {id,title,sync_state,sync_error}]}'
+curl -s -X POST "$BASE_URL/api/artifacts/3/sync" -H "Authorization: Bearer $TOKEN" | jq '.data | {state,files,bytes,prefix}'
+# 换实例/重建卷后本地目录是空的：只要 sync_state=synced，下面的下载会从远端取回同一份字节（先按 sha256 校验）
+curl -s -o cover.png "$BASE_URL/api/artifacts/3/file?path=assets/cover-1-3x4.png" -H "Authorization: Bearer $TOKEN"
 ```
 
 轮询判据必须用顶层 `.data.status`（终态集合：`SUCCESS` / `SUCCESS_WITH_DEGRADED` / `FAILED`）。节点日志是增量落库的，明细里出现节点级 `"SUCCESS"` 不代表整条执行结束——这是脚本 `await terminal` 的由来。

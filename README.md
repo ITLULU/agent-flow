@@ -77,6 +77,11 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.nodes.image.base-url` | `https://dashscope.aliyuncs.com` | 仅测试/代理环境改；节点 `ratio`/`size` 决定出图尺寸 |
 | `agentflow.nodes.wechat.app-id` / `app-secret` | `${WECHAT_APPID:}/${WECHAT_SECRET:}` | env 注入；云端需将出网 IP 加进公众号 IP 白名单；单用户可用 `wechat.draft.credentialId` 走凭证库 |
 | `agentflow.content.library-dir` | `${AGENTFLOW_LIBRARY_DIR:./data/library}` | 成品库根目录，所有读写被约束在此目录内（`resolveInside` 防穿越）；容器/云主机必须 env 指向持久卷，否则重启丢成品。启动自检做写探针 |
+| `agentflow.content.storage.enabled` | `${AGENTFLOW_STORAGE_ENABLED:false}` | **成品远端副本开关（P7-3#12b）**。关闭时不建客户端、不排扫描、一个字节也不出网；打开时端点/桶/凭证必须齐全，否则启动即失败（fail-fast） |
+| `agentflow.content.storage.endpoint` / `bucket` / `region` / `key-prefix` | `${AGENTFLOW_STORAGE_ENDPOINT:}` / `${AGENTFLOW_STORAGE_BUCKET:}` / `us-east-1` / `artifacts` | S3 兼容端点（MinIO 同网络填 `http://minio:9000`），path-style 访问；`key-prefix` 决定对象键前缀 |
+| `agentflow.content.storage.access-key` / `secret-key` | `${AGENTFLOW_STORAGE_ACCESS_KEY:}` / `${AGENTFLOW_STORAGE_SECRET_KEY:}`（空） | **只从环境变量或 `*_FILE` 秘密文件注入**，永不写进 yml/compose；错误报文只含 HTTP 状态与 S3 `<Code>`，绝不回显对端报文（防凭证经错误信息外泄） |
+| `agentflow.content.storage.connect-timeout-ms` / `request-timeout-ms` | `5000` / `30000` | 出网超时；PUT 带 `x-amz-content-sha256`，超时/半途断连都会落到 `sync_state=failed` 并留原因，不会静默留半套远端副本 |
+| `agentflow.content.storage.sweep-interval-ms` / `sweep-initial-delay-ms` | `60000` / `15000` | 后台补扫节拍与首轮延迟；每轮最多 20 条，单条失败只记状态不影响其余。测试与容量调优时先调大 initial-delay，避免后台线程抢走本该显式验证的同步 |
 | `agentflow.exec.max-concurrent` | `${AGENTFLOW_EXEC_MAX_CONCURRENT:16}` | 单实例同时执行的工作流数（P7-3#10 外置）；按节点真实耗时压测后再调，改配置重启即生效，无需重建镜像 |
 | `agentflow.exec.max-queued` | `${AGENTFLOW_EXEC_MAX_QUEUED:64}` | 允许等待执行槽的条数；超过即同步 `429/A0429`（不创建执行记录），避免无上限静默积压。`0` = 只跑不排 |
 | `agentflow.exec.acquire-timeout` | `${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}` | 排队等槽上限；超时执行落 `FAILED` 并释放指标 `agentflow.execution.rejected{reason="acquire_timeout"}`，不留永远 `RUNNING` 的记录 |
@@ -99,13 +104,15 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 - **成品库与列表 API**：`GET /api/workflows?limit=&beforeId=`、`GET /api/credentials?limit=&beforeId=`、`GET /api/artifacts?kind=&limit=&beforeId=` 全部为键集分页（默认 50 条、上限 200），响应 `{items,nextCursor}`（`nextCursor=null` 表示末页）；`/{id}`、`/{id}/files`、`/{id}/file?path=`；非属主与不存在同为 404（不泄露"存在但无权"），下载走 `filesOf` 白名单 + `resolveInside` 双重防穿越，MIME 未知一律 `application/octet-stream`（不猜 text/html，防存储型 XSS）。
 - **成品完整性核对与补偿（P7-3#12a）**：`artifact.file_state`（pending/complete/incomplete）+ `file_error`（Flyway V5）。`publish.local` 先插行拿 id 才能定目录名，所以"有行"不等于"有货"——落盘任一步失败会把原因钉在行上（`incomplete` + `file_error`）再照常抛错。`GET /api/artifacts/incomplete` 列出半套成品，`POST /api/artifacts/{id}/repair` 用库里的 title/body/meta 重渲染 `article.md`/`meta.json`（渲染口径与落盘口径同源 `ArticleMarkdown`，逐字节一致），并实测 `assets/*`：**图不在数据库里，缺了照实返回 `missing` 且状态留在 `incomplete`**，补偿绝不把半套数据刷成绿色。指标 `agentflow.artifact.files{state}` / `agentflow.artifact.repair{state}`。注意 `file_state` 是"发布时状态"，不是磁盘实时状态——手工删过的文件不会被 `/incomplete` 看见，用 `/files`（磁盘实况）或 `repair`（实测并重建）核对。
 
+- **成品远端副本同步（P7-3#12b）**：`agentflow.content.storage.*`（默认关闭）。开启后 `publish.local` 落盘成功的成品可推到任意 S3 兼容端点（MinIO/OSS/AWS），键为 `{key-prefix}/{artifactId}/{相对路径}`。手动 `POST /api/artifacts/{id}/sync`，后台 `sweep` 每轮补 20 条；只同步 `file_state=complete` 的成品（半套不上远端，否则"本地丢了还能 repair"变成"远端也错了"）。**同步永不改 `file_state`**，失败只写 `sync_state=failed` + `sync_error`——备份面坏了却说"稿子没了"是最坏的误导。成功时把 `{相对路径 → sha256}` 清单落库：它既是本地目录被清空后的下载白名单（`GET /{id}/file?path=` 回落到远端字节，先比对 sha256，不一致宁可 404 也不交付坏副本），也是"远端确实有货"的证据。签名是纯 JDK 的 AWS SigV4（`SigV4`，不引 SDK），path-style、`Redirect.NEVER`、错误报文只带 HTTP 状态与 S3 `<Code>`（不回显对端 body，防凭证经错误信息外泄）。指标 `agentflow.artifact.sync{state=synced|failed|skipped|served|bucket_unavailable}`。
+
 ## 4. 已知限制（延期台账）
 
 > **当前形态口径**：本项目按**单作者/受信小团队自用**交付与验证。首轮专家评审给出对外多用户形态的
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：多实例全局配额（#11）、真异地副本缺对象存储凭证（#9 的定时/产物归档/告警已于 P7-3 接上，代码与挂点齐了，缺的是桶凭证）、微信真凭证外发未验。主密钥轮换（#16）与下游舱壁/熔断（#17）已于 P7-3 完成。
+> **对外仍 NO-GO** 的剩余理由：多实例全局配额（#11）、真异地副本缺云端桶凭证（#9 的定时/产物归档/告警与 #12b 的成品远端副本已于 P7-3 接上，代码与挂点齐了、本机 MinIO 实测通过，缺的是云桶凭证与生产启用）、微信真凭证外发未验。主密钥轮换（#16）、下游舱壁/熔断（#17）、成品完整性补偿（#12a）已于 P7-3 完成。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -119,8 +126,9 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
 | ~~主密钥无 kid/轮换流程（换密钥后旧凭证全废）~~ | ✅ P7-3#16 已修：primary+previous 双读单写，新密文带 kid，旧密文首次读取自动重封装；容器实测轮换前凭证执行成功、清空 previous 后仍成功 | - |
 | ~~下游无熔断/舱壁，一个慢依赖可占满执行槽~~ | ✅ P7-3#17 已修：`DependencyGuard` 在节点注册处按依赖（llm/image/wechat/xhs/web）包舱壁+熔断；连续 C0001–C0003 触发 open，期间 `C0004` 快速失败且不打下游，冷却后单探测恢复；A04xx 不算依赖失败。指标 `agentflow.dependency.state/trips/rejected`，真实 HTTP 桩 E2E 验证 open 期间下游零请求 | - |
-| ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 3 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404） | - |
-| 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 / 舱壁与熔断各自计数 | ⚠️ 单实例假设 | 十万档（评审 §5） |
+| ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 4 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404、未启用存储时同步入口如实回"未启用"） | - |
+| ~~成品只落本地卷，换实例/重建卷即丢~~ | ✅ P7-3#12b 已修：可选 S3 兼容远端副本（SigV4 纯 JDK 实现），`POST /api/artifacts/{id}/sync` + 后台补扫；下载在本地缺失时按 sha256 清单回落到远端，校验不一致宁可 404。真 MinIO 实测往返与"错密钥必被 403 拒"，另 7 条 E2E 覆盖写失败/PUT 成功但对象不在/远端被改坏/补扫自愈/归属隔离/关闭态如实报未启用 | - |
+| 多实例：进程内限流 / 每实例独立 16 槽 / 舱壁与熔断各自计数 / 成品库已有远端副本但同步无分布式令牌 | 🟡 单实例假设（成品副本面已由 #12b 解除） | 十万档（评审 §5），配额见 #11 |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
 | ~~cron 定时触发（目前仅手动 API 触发）~~ | ✅ P3 已交付（next_fire_at CAS 领发 + 节拍参数化，见 docs/PROGRESS.md） | - |

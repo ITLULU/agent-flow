@@ -152,11 +152,17 @@ public class JdbcContentStore implements ContentStore {
         Counter.builder("agentflow.artifact.files").tag("state", "incomplete").register(registry).increment();
     }
 
+    /**
+     * 单条成品。这里读不到 owner 之外的信息，归属校验在调用方（requireVisible）做。
+     * 带 sync_error：详情里只显示 sync_state=failed 而不显示原因，运维就只能去猜是对端坏了还是路径不对。
+     * 注意 body/meta_json 仍随行走一遍，属主自己的正文不外泄（非属主在同一次 SELECT 里就查不到行）。
+     */
     @Override
     public Map<String, Object> find(long artifactId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
-                        + "created_at FROM artifact WHERE id = ?", artifactId);
+                        + "sync_state, sync_error, sync_manifest, synced_at, created_at FROM artifact WHERE id = ?",
+                artifactId);
         return rows.isEmpty() ? Map.of() : rows.get(0);
     }
 
@@ -225,12 +231,53 @@ public class JdbcContentStore implements ContentStore {
     public Map<String, Object> detail(long artifactId, long ownerId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
-                        + "created_at FROM artifact WHERE id = ? AND owner_id = ?", artifactId, ownerId);
+                        + "sync_state, sync_error, sync_manifest, synced_at, created_at "
+                        + "FROM artifact WHERE id = ? AND owner_id = ?", artifactId, ownerId);
         if (rows.isEmpty()) {
             // 非属主与不存在同口径回 404：避免成品 id 是否存在被探测（与 P3 workflow 归属隔离一致）
             throw new ApiException(ErrorCode.NOT_FOUND, "成品不存在: " + artifactId);
         }
         return rows.get(0);
+    }
+
+    // ---------- 对象存储同步状态（P7-3#12b）----------
+
+    /**
+     * 同步成功：记下清单（相对路径 → sha256）与时间。
+     * 清单是读回落点校验的依据——没有它，"远端有一份"和"远端那份是好的"就区分不出来。
+     */
+    public void markSynced(long artifactId, String manifestJson) {
+        jdbc.update("UPDATE artifact SET sync_state = 'synced', sync_error = NULL, sync_manifest = ?, "
+                + "synced_at = CURRENT_TIMESTAMP WHERE id = ?", manifestJson, artifactId);
+    }
+
+    /** 同步失败：只动 sync_* 三列。file_state 不能被同步结果改写，否则备份失败会伪装成丢稿。 */
+    public void markSyncFailed(long artifactId, String reason) {
+        jdbc.update("UPDATE artifact SET sync_state = 'failed', sync_error = ? WHERE id = ?",
+                truncate(reason, 500), artifactId);
+    }
+
+    /** 待同步清单（扫实用）：本地已完整但远端还没有一套齐活副本的成品。 */
+    public List<Map<String, Object>> pendingSync(long ownerId, int limit, Long beforeId) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT id, execution_id, kind, title, dir, file_state, sync_state, sync_error, synced_at, created_at "
+                        + "FROM artifact WHERE owner_id = ? AND file_state = 'complete' AND sync_state <> 'synced'");
+        List<Object> args = new ArrayList<>();
+        args.add(ownerId);
+        if (beforeId != null) {
+            sql.append(" AND id < ?");
+            args.add(beforeId);
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    /** 后台扫描用：不限属主，按 id 升序（老成品先补，避免最新成品一直插队把旧的饿死）。 */
+    public List<Map<String, Object>> pendingForSweep(int limit) {
+        return jdbc.queryForList(
+                "SELECT id, owner_id, kind, title, file_state, sync_state, sync_error FROM artifact "
+                        + "WHERE file_state = 'complete' AND sync_state <> 'synced' ORDER BY id ASC LIMIT ?", limit);
     }
 
     /**
