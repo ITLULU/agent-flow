@@ -19,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,6 +71,33 @@ public class ArtifactController {
     public ApiResponse<List<String>> files(@PathVariable long id) {
         requireVisible(id);
         return ApiResponse.ok(store.filesOf(id));
+    }
+
+    /**
+     * 完整性核对：列出"库里有行、盘上未必有货"的成品（file_state ≠ complete）。
+     * 这是评审 #12 要的可见性——半套数据过去只能靠人工 diff 目录发现。
+     */
+    @EndpointSensitivity(Sensitivity.USER)
+    @GetMapping("/incomplete")
+    public ApiResponse<Map<String, Object>> incomplete(
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit,
+            @RequestParam(required = false) Long beforeId) {
+        int size = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> items = store.incomplete(PrincipalContext.get().uid(), size, beforeId);
+        Long nextCursor = items.size() == size
+                ? ((Number) items.get(items.size() - 1).get("id")).longValue() : null;
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", items);
+        page.put("nextCursor", nextCursor);
+        return ApiResponse.ok(page);
+    }
+
+    /** 补偿入口：用库里的正文/元数据重建成品文本；图片不在库里，缺就照实回 missing 并保持 incomplete。 */
+    @EndpointSensitivity(Sensitivity.USER)
+    @PostMapping("/{id}/repair")
+    public ApiResponse<Map<String, Object>> repair(@PathVariable long id) {
+        requireVisible(id);
+        return ApiResponse.ok(store.repair(id));
     }
 
     /** 下载单个产物文件（article.md / note.txt / assets/cover-1-3x4.png …）。 */

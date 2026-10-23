@@ -97,6 +97,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 - **traceId 口径**：入口过滤器生成或透传（`X-Trace-Id`），进 MDC、进结构化响应体，请求级 RT 以此为唯一统计口径。
 - **创作流水线节点集（P4A）**：`hotspot.fetch`（四源热榜，合并去重、整体不可用降级）→ `article.extract`（链接取正文，自动抽标题）→ `copy.write`（`mode=xiaohongshu|wechat`，按【标记】分节解析出标题/摘要/标签/金句/封面文案）→ `image.cover`（比例预设或任意 `a:b`，长边 1024 折算、边长 512–1440；失败降级为无图）→ `publish.local`（成品库 `article.md`/`note.txt` + `meta.json` + `assets/`）→ `xhs.draft` / `wechat.draft`（发布通道永不静默降级）。
 - **成品库与列表 API**：`GET /api/workflows?limit=&beforeId=`、`GET /api/credentials?limit=&beforeId=`、`GET /api/artifacts?kind=&limit=&beforeId=` 全部为键集分页（默认 50 条、上限 200），响应 `{items,nextCursor}`（`nextCursor=null` 表示末页）；`/{id}`、`/{id}/files`、`/{id}/file?path=`；非属主与不存在同为 404（不泄露"存在但无权"），下载走 `filesOf` 白名单 + `resolveInside` 双重防穿越，MIME 未知一律 `application/octet-stream`（不猜 text/html，防存储型 XSS）。
+- **成品完整性核对与补偿（P7-3#12a）**：`artifact.file_state`（pending/complete/incomplete）+ `file_error`（Flyway V5）。`publish.local` 先插行拿 id 才能定目录名，所以"有行"不等于"有货"——落盘任一步失败会把原因钉在行上（`incomplete` + `file_error`）再照常抛错。`GET /api/artifacts/incomplete` 列出半套成品，`POST /api/artifacts/{id}/repair` 用库里的 title/body/meta 重渲染 `article.md`/`meta.json`（渲染口径与落盘口径同源 `ArticleMarkdown`，逐字节一致），并实测 `assets/*`：**图不在数据库里，缺了照实返回 `missing` 且状态留在 `incomplete`**，补偿绝不把半套数据刷成绿色。指标 `agentflow.artifact.files{state}` / `agentflow.artifact.repair{state}`。注意 `file_state` 是"发布时状态"，不是磁盘实时状态——手工删过的文件不会被 `/incomplete` 看见，用 `/files`（磁盘实况）或 `repair`（实测并重建）核对。
 
 ## 4. 已知限制（延期台账）
 
@@ -118,6 +119,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
 | ~~主密钥无 kid/轮换流程（换密钥后旧凭证全废）~~ | ✅ P7-3#16 已修：primary+previous 双读单写，新密文带 kid，旧密文首次读取自动重封装；容器实测轮换前凭证执行成功、清空 previous 后仍成功 | - |
 | ~~下游无熔断/舱壁，一个慢依赖可占满执行槽~~ | ✅ P7-3#17 已修：`DependencyGuard` 在节点注册处按依赖（llm/image/wechat/xhs/web）包舱壁+熔断；连续 C0001–C0003 触发 open，期间 `C0004` 快速失败且不打下游，冷却后单探测恢复；A04xx 不算依赖失败。指标 `agentflow.dependency.state/trips/rejected`，真实 HTTP 桩 E2E 验证 open 期间下游零请求 | - |
+| ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 3 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404） | - |
 | 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 / 舱壁与熔断各自计数 | ⚠️ 单实例假设 | 十万档（评审 §5） |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |

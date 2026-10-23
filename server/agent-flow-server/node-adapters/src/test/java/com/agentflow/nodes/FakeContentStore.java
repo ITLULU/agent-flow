@@ -1,5 +1,7 @@
 package com.agentflow.nodes;
 
+import com.agentflow.common.error.ApiException;
+import com.agentflow.common.error.ErrorCode;
 import com.agentflow.nodes.spi.ContentStore;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -8,7 +10,7 @@ import java.util.Map;
 
 /**
  * 节点侧单测用的 ContentStore 假实现：只记录调用与内容，不碰磁盘与数据库。
- * 真实现（含路径穿越校验、目录搬迁）由 server-application 的 JdbcContentStoreTest 覆盖。
+ * 真实现（含路径穿越校验、目录搬迁、状态回写）由 server-application 的 ArtifactIntegrityE2ETests 覆盖。
  */
 public final class FakeContentStore implements ContentStore {
 
@@ -17,6 +19,10 @@ public final class FakeContentStore implements ContentStore {
     public final Map<Long, Map<String, String>> files = new LinkedHashMap<>();
     public final Map<Long, List<String>> staged = new LinkedHashMap<>();
     public final Map<Long, List<String>> attached = new LinkedHashMap<>();
+    public final Map<Long, String> fileState = new LinkedHashMap<>();
+
+    /** 打开后 writeText 必失败：用来钉住"落盘失败 ⇒ 行上留原因"这条补偿入口的入口条件。 */
+    public boolean failWrites;
 
     private long sequence = 0;
 
@@ -68,9 +74,24 @@ public final class FakeContentStore implements ContentStore {
 
     @Override
     public String writeText(long artifactId, String fileName, String content) {
+        if (failWrites) {
+            throw new ApiException(ErrorCode.INTERNAL, "模拟磁盘写入失败 " + fileName);
+        }
         log.add("write:" + artifactId + ":" + fileName + ":" + content.length());
         files.computeIfAbsent(artifactId, k -> new LinkedHashMap<>()).put(fileName, content);
         return "/fake/library/" + artifactId + "/" + fileName;
+    }
+
+    @Override
+    public void markComplete(long artifactId) {
+        log.add("complete:" + artifactId);
+        fileState.put(artifactId, "complete");
+    }
+
+    @Override
+    public void markIncomplete(long artifactId, String reason) {
+        log.add("incomplete:" + artifactId + ":" + reason);
+        fileState.put(artifactId, "incomplete:" + reason);
     }
 
     @Override

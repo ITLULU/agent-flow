@@ -88,9 +88,12 @@ curl -s $BASE_URL/api/executions/7 -H "Authorization: Bearer $TOKEN" \
   | jq '.data.status, .data.nodes[] | {nodeId,nodeType,status,attempts,durationMs,reason}'
 
 # ⑤ 成品库：列表 → 明细 → 文件清单 → 下载单个文件
-curl -s "$BASE_URL/api/artifacts?kind=article&limit=5" -H "Authorization: Bearer $TOKEN" | jq '.data[] | {id,title,kind}'
+curl -s "$BASE_URL/api/artifacts?kind=article&limit=5" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | {id,title,kind,file_state}'
 curl -s  "$BASE_URL/api/artifacts/3/files" -H "Authorization: Bearer $TOKEN" | jq .data
 curl -s -o article.md "$BASE_URL/api/artifacts/3/file?path=article.md" -H "Authorization: Bearer $TOKEN"
+# ⑥ 完整性核对与补偿（P7-3#12a）：半套成品看得见，文本能重建，缺图如实报
+curl -s "$BASE_URL/api/artifacts/incomplete" -H "Authorization: Bearer $TOKEN" | jq '.data.items[] | {id,title,file_state,file_error}'
+curl -s -X POST "$BASE_URL/api/artifacts/3/repair" -H "Authorization: Bearer $TOKEN" | jq '.data | {state,restored,missing}'
 ```
 
 轮询判据必须用顶层 `.data.status`（终态集合：`SUCCESS` / `SUCCESS_WITH_DEGRADED` / `FAILED`）。节点日志是增量落库的，明细里出现节点级 `"SUCCESS"` 不代表整条执行结束——这是脚本 `await terminal` 的由来。

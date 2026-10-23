@@ -88,10 +88,18 @@ public class LocalArchiveNodeExecutor implements NodeExecutor {
         long artifactId = contentStore.insert(ctx.executionId(), kind, title, body, toJson(meta));
 
         List<String> files = new ArrayList<>();
-        files.add(contentStore.writeText(artifactId, "article.md",
-                markdown(kind, title, str(copy.get("digest")), body, list(copy.get("hashtags")))));
-        files.add(contentStore.writeText(artifactId, "meta.json", prettyJson(meta)));
-        files.addAll(contentStore.attachStaged(ctx.executionId(), artifactId));
+        try {
+            files.add(contentStore.writeText(artifactId, "article.md",
+                    ArticleMarkdown.render(kind, title, str(copy.get("digest")), body, list(copy.get("hashtags")))));
+            files.add(contentStore.writeText(artifactId, "meta.json", prettyJson(meta)));
+            files.addAll(contentStore.attachStaged(ctx.executionId(), artifactId));
+        } catch (RuntimeException e) {
+            // 库里已有行、盘上没货是评审 #12 点的"半套数据"：静默抛错等于留给下一次人工发现。
+            // 先把原因钉在行上，再抛——/api/artifacts/incomplete 与 repair 才有可操作的入口。
+            contentStore.markIncomplete(artifactId, brief(e));
+            throw e;
+        }
+        contentStore.markComplete(artifactId);
 
         Map<String, Object> data = new HashMap<>();
         data.put("artifactId", artifactId);
@@ -104,32 +112,9 @@ public class LocalArchiveNodeExecutor implements NodeExecutor {
         return NodeOutput.ok(data);
     }
 
-    private static String markdown(String kind, String title, String digest, String body, List<String> hashtags) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("---\n");
-        sb.append("title: ").append(yaml(title)).append("\n");
-        sb.append("kind: ").append(kind).append("\n");
-        if (digest != null && !digest.isBlank()) {
-            sb.append("digest: ").append(yaml(digest)).append("\n");
-        }
-        if (!hashtags.isEmpty()) {
-            sb.append("hashtags: [").append(String.join(", ",
-                    hashtags.stream().map(LocalArchiveNodeExecutor::yaml).toList())).append("]\n");
-        }
-        sb.append("---\n\n");
-        sb.append("# ").append(title).append("\n\n");
-        if (digest != null && !digest.isBlank()) {
-            sb.append("> ").append(digest).append("\n\n");
-        }
-        sb.append(body.trim()).append("\n");
-        if (!hashtags.isEmpty()) {
-            sb.append("\n").append(String.join(" ", hashtags)).append("\n");
-        }
-        return sb.toString();
-    }
-
-    private static String yaml(String s) {
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ") + "\"";
+    private static String brief(Throwable t) {
+        String msg = t.getClass().getSimpleName() + ": " + (t.getMessage() == null ? "" : t.getMessage());
+        return msg.length() <= 480 ? msg : msg.substring(0, 480);
     }
 
     /** 上游输出定位：按某个特征字段找，找不到返回空 Map（所有字段读法都容错）。 */

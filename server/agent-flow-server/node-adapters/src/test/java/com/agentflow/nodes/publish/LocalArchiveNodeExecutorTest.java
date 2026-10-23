@@ -89,6 +89,42 @@ class LocalArchiveNodeExecutorTest {
                         e -> assertThat(e.getMessage()).contains("ContentStore 缺席"));
     }
 
+    /**
+     * 反向验证（评审 #12 的"半套数据"场景）：行已经插了、盘上没货时，
+     * 必须把原因钉在成品行上并照常抛错——只抛错等于留给下次人工发现。
+     */
+    @Test
+    void writeFailurePinsReasonOnArtifactAndStillThrows() {
+        FakeContentStore store = new FakeContentStore();
+        store.failWrites = true;
+
+        assertThatThrownBy(() -> new LocalArchiveNodeExecutor(store)
+                .execute(new NodeInput(Map.of(), Map.of("copy", copyWechat())), CTX))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getMessage()).contains("模拟磁盘写入失败"));
+
+        // 插行发生在前（要先拿 id 才能定目录名），所以这条行必须被标成 incomplete 而不是留在 pending
+        assertThat(store.artifacts).hasSize(1);
+        assertThat(store.fileState.get(1L))
+                .startsWith("incomplete:")
+                .contains("ApiException")
+                .contains("模拟磁盘写入失败");
+        assertThat(store.log).noneMatch(l -> l.startsWith("complete:"));
+    }
+
+    @Test
+    void completeMarkOnlyAfterEveryFileLanded() {
+        FakeContentStore store = new FakeContentStore();
+        store.staged.put(77L, new java.util.ArrayList<>(List.of("cover-1-3x4.png")));
+
+        new LocalArchiveNodeExecutor(store)
+                .execute(new NodeInput(Map.of(), Map.of("copy", copyWechat())), CTX);
+
+        assertThat(store.fileState.get(1L)).isEqualTo("complete");
+        // 顺序钉死：complete 必须是最后一步，否则"状态完整但文件还在写"会被读端当成成品
+        assertThat(store.log.indexOf("complete:1")).isGreaterThan(store.log.indexOf("attach:77:1"));
+    }
+
     @Test
     void neverDegradesAndNeverRetries() {
         LocalArchiveNodeExecutor executor = new LocalArchiveNodeExecutor(new FakeContentStore());

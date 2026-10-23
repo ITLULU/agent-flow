@@ -2,8 +2,13 @@ package com.agentflow.server.persistence;
 
 import com.agentflow.common.error.ApiException;
 import com.agentflow.common.error.ErrorCode;
+import com.agentflow.nodes.publish.ArticleMarkdown;
 import com.agentflow.nodes.spi.ContentStore;
 import com.agentflow.server.config.ContentProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,13 +40,16 @@ public class JdbcContentStore implements ContentStore {
 
     private static final String STAGING = ".staging";
     private static final int MAX_NAME_CHARS = 96;
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final JdbcTemplate jdbc;
     private final Path root;
+    private final MeterRegistry registry;
 
-    public JdbcContentStore(JdbcTemplate jdbc, ContentProperties props) {
+    public JdbcContentStore(JdbcTemplate jdbc, ContentProperties props, MeterRegistry registry) {
         this.jdbc = jdbc;
         this.root = Path.of(props.libraryDir()).toAbsolutePath().normalize();
+        this.registry = registry;
     }
 
     @Override
@@ -132,17 +140,73 @@ public class JdbcContentStore implements ContentStore {
     }
 
     @Override
+    public void markComplete(long artifactId) {
+        jdbc.update("UPDATE artifact SET file_state = 'complete', file_error = NULL WHERE id = ?", artifactId);
+        Counter.builder("agentflow.artifact.files").tag("state", "complete").register(registry).increment();
+    }
+
+    @Override
+    public void markIncomplete(long artifactId, String reason) {
+        jdbc.update("UPDATE artifact SET file_state = 'incomplete', file_error = ? WHERE id = ?",
+                truncate(reason, 500), artifactId);
+        Counter.builder("agentflow.artifact.files").tag("state", "incomplete").register(registry).increment();
+    }
+
+    @Override
     public Map<String, Object> find(long artifactId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, created_at "
-                        + "FROM artifact WHERE id = ?", artifactId);
+                "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
+                        + "created_at FROM artifact WHERE id = ?", artifactId);
         return rows.isEmpty() ? Map.of() : rows.get(0);
+    }
+
+    /**
+     * 补偿入口：用库里已有的 title/body/meta 重渲染文本产物（逐字节口径由 ArticleMarkdown 单点保证）。
+     * 图片不在数据库里，缺了只能照实报缺并把状态留在 incomplete——"补偿成功"不等于"目录里有全部产物"，
+     * 这一步的意义是把不可见的半套数据变成可见、可再操作的数据。
+     */
+    public Map<String, Object> repair(long artifactId) {
+        Map<String, Object> row = find(artifactId);
+        if (row.isEmpty()) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "成品不存在: " + artifactId);
+        }
+        Map<String, Object> meta = parseMeta(row.get("meta_json"));
+        ensureDir(artifactPath(artifactId));
+        List<String> restored = new ArrayList<>();
+        writeText(artifactId, "article.md", ArticleMarkdown.render(str(row.get("kind")), str(row.get("title")),
+                str(meta.get("digest")), str(row.get("body")), strList(meta.get("hashtags"))));
+        restored.add("article.md");
+        writeText(artifactId, "meta.json", prettyJson(meta));
+        restored.add("meta.json");
+
+        List<String> missing = new ArrayList<>();
+        for (String name : expectedAssets(meta)) {
+            if (!Files.isRegularFile(resolveInside(artifactPath(artifactId), "assets/" + safeName(name)))) {
+                missing.add("assets/" + name);
+            }
+        }
+        String state;
+        if (missing.isEmpty()) {
+            markComplete(artifactId);
+            state = "complete";
+        } else {
+            markIncomplete(artifactId, "补偿后仍缺产物文件: " + String.join(",", missing));
+            state = "incomplete";
+        }
+        Counter.builder("agentflow.artifact.repair").tag("state", state).register(registry).increment();
+        Map<String, Object> out = new HashMap<>();
+        out.put("artifactId", artifactId);
+        out.put("state", state);
+        out.put("restored", restored);
+        out.put("missing", missing);
+        out.put("dir", artifactPath(artifactId).toString());
+        return out;
     }
 
     /** 供 API 层列成品（节点不需要，故不进 ContentStore 端口，留在实现类上）。beforeId 为游标（不含）。 */
     public List<Map<String, Object>> list(long ownerId, String kind, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
-                "SELECT id, execution_id, kind, title, dir, created_at FROM artifact WHERE owner_id = ?");
+                "SELECT id, execution_id, kind, title, dir, file_state, created_at FROM artifact WHERE owner_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(ownerId);
         if (kind != null && !kind.isBlank()) {
@@ -160,13 +224,33 @@ public class JdbcContentStore implements ContentStore {
 
     public Map<String, Object> detail(long artifactId, long ownerId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, created_at "
-                        + "FROM artifact WHERE id = ? AND owner_id = ?", artifactId, ownerId);
+                "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
+                        + "created_at FROM artifact WHERE id = ? AND owner_id = ?", artifactId, ownerId);
         if (rows.isEmpty()) {
             // 非属主与不存在同口径回 404：避免成品 id 是否存在被探测（与 P3 workflow 归属隔离一致）
             throw new ApiException(ErrorCode.NOT_FOUND, "成品不存在: " + artifactId);
         }
         return rows.get(0);
+    }
+
+    /**
+     * 完整性核对：列出该用户"库里有一行、盘上未必有货"的成品（file_state ≠ complete）。
+     * 只查状态列不查磁盘是刻意的——逐行 stat 在网络盘/大库上会把一个只读 API 变成 IO 风暴；
+     * 需要看目录实况时用 repair（它会实测缺失文件）或 /files。
+     */
+    public List<Map<String, Object>> incomplete(long ownerId, int limit, Long beforeId) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT id, execution_id, kind, title, dir, file_state, file_error, created_at FROM artifact "
+                        + "WHERE owner_id = ? AND file_state <> 'complete'");
+        List<Object> args = new ArrayList<>();
+        args.add(ownerId);
+        if (beforeId != null) {
+            sql.append(" AND id < ?");
+            args.add(beforeId);
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.queryForList(sql.toString(), args.toArray());
     }
 
     /** 列出成品目录内的文件（相对路径），下载接口用它做白名单。 */
@@ -258,5 +342,56 @@ public class JdbcContentStore implements ContentStore {
             return "";
         }
         return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    private static Map<String, Object> parseMeta(Object raw) {
+        String s = raw == null ? "" : String.valueOf(raw);
+        if (s.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return MAPPER.readValue(s, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            // 只报异常类型不带堆栈：meta_json 里可能含用户正文，错误信息会进日志与响应
+            throw new ApiException(ErrorCode.INTERNAL, "成品元数据无法解析: " + e.getClass().getSimpleName());
+        }
+    }
+
+    private static String prettyJson(Map<String, Object> meta) {
+        try {
+            return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(meta);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    /** 图片清单里的期望文件名：新数据是 {url,fileName,…} 结构，旧数据可能直接是文件名字符串。 */
+    private static List<String> expectedAssets(Map<String, Object> meta) {
+        List<String> out = new ArrayList<>();
+        Object images = meta.get("images");
+        if (!(images instanceof List<?> items)) {
+            return out;
+        }
+        for (Object item : items) {
+            if (item instanceof Map<?, ?> map && map.get("fileName") != null) {
+                out.add(String.valueOf(map.get("fileName")));
+            } else if (item instanceof String s && !s.isBlank()) {
+                out.add(s);
+            }
+        }
+        return out;
+    }
+
+    private static List<String> strList(Object v) {
+        List<String> out = new ArrayList<>();
+        if (v instanceof List<?> items) {
+            items.forEach(o -> out.add(o == null ? "" : String.valueOf(o)));
+        }
+        return out;
+    }
+
+    private static String str(Object v) {
+        return v == null ? "" : String.valueOf(v);
     }
 }
