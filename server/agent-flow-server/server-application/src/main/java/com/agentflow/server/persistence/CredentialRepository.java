@@ -37,12 +37,14 @@ public class CredentialRepository {
         });
     }
 
-    public List<CredentialMeta> listByOwner(long ownerId) {
+    public List<CredentialMeta> listByOwner(long ownerId, int limit, Long beforeId) {
         return jdbc.query("SELECT id, owner_id, provider, name, CAST(updated_at AS VARCHAR) AS updated_at "
-                        + "FROM user_credentials WHERE owner_id = ? ORDER BY provider, name",
+                        + "FROM user_credentials WHERE owner_id = ?"
+                        + (beforeId == null ? "" : " AND id < ?")
+                        + " ORDER BY id DESC LIMIT ?",
                 (rs, i) -> new CredentialMeta(rs.getLong("id"), rs.getLong("owner_id"),
                         rs.getString("provider"), rs.getString("name"), rs.getString("updated_at")),
-                ownerId);
+                beforeId == null ? new Object[]{ownerId, limit} : new Object[]{ownerId, beforeId, limit});
     }
 
     public Optional<CredentialMeta> findMeta(long id) {

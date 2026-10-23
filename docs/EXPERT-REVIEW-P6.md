@@ -146,7 +146,7 @@
 | 10 | ⚠️ → ✅ P7-3#10 | 容量 | 执行闸门 16 且硬编码不可配，0.36 exec/s，排队无超时 | ExecutionManager.java:32；现 `ExecProperties` + `agentflow.exec.*` | 研发/运维 | 已外置 `max-concurrent`（16）/ `max-queued`（64）/ `acquire-timeout`（5m），支持 env 覆盖；排队满同步 429 且不建记录，等槽超时落 FAILED；`agentflow.execution.rejected{reason}` + `slots.capacity` 可观测。5 项测试 + 容器反向验证（env=4 生效 / env=0 启动失败）。**未含**：多实例全局配额归 #11 |
 | 11 | ⚠️ | 容量/DB | 多实例后 `实例×20 > PG 100`；无全局配额；限流各自计数 | application.yml:74-79；RateLimitFilter 注释 :22 | DBA | PgBouncer + 全局令牌（Redis）；十万档必做 |
 | 12 | ⚠️ | 一致性 | 成品库本地文件 + 列表只读本机；DB 写成功/文件失败无补偿 | application.yml:57；LocalArchiveNodeExecutor | 研发 | 对象存储 + 补偿入口（P7） |
-| 13 | ⚠️ | 访问模式 | `listByOwner` 等无分页；node_runs 逐行写 | CredentialRepository.java:40-46 | DBA | 游标分页 + 批量 flush |
+| 13 | ✅ P7-3#13 | 访问模式 | `listByOwner` 等无分页；node_runs 逐行写 | 三类列表已改 `limit+beforeId` 键集分页（默认 50/上限 200，响应 `{items,nextCursor}`）+ V4 `(owner_id,id)` 索引；node 日志批量写**评估不做**（单执行 5–10 节点，批量化牺牲时间线可见性与崩溃日志完整性，十万档随异步聚合再做） | DBA | `P7PaginationE2ETests` 3/3（三页无重叠、末页 null、limit 收敛、跨属主隔离） |
 | 14 | ✅ P7-3#14 | 安全标记 | 路由无 SENSITIVE 标记（bootstrap §5 未兑现） | `@EndpointSensitivity` 覆盖 18 条路由，`EndpointSensitivityCatalog` 启动期漏标即失败，`SensitiveAccessAuditInterceptor` 记敏感访问 | 研发 | 反向验证：摘掉 `/api/ping` 标记 ⇒ 启动失败并点名路由；全量 220 测试 0 失败 |
 | 15 | ✅ | 供应链 | 传递依赖 nacos-client 未使用仍有攻击面且刷错误日志 | 已排除 `spring-alibaba-nacos-config`；`nacos-client` 因 `DashScopeApi` 运行期使用而保留 | 运维 | 已完成（P7-3#12）：`DependencyIsolationTest` + 聚合健康 UP 断言 + 容器复验；启动日志 nacos/ERROR 为 0。彻底移除 nacos-client 需上游修复或 shim，挂后续 |
 | 16 | ⚠️ | 密钥治理 | 主密钥无 kid/轮换流程 | AesGcmCipher 使用点；AuthConfig.java:40-52 | 安全 | 双读单写轮换方案 |
@@ -175,7 +175,7 @@
 ## 7. P7-1 修复回写（2026-10-22，四条 🛑 全部落地）
 
 修复范围＝§4 的 #1/#2/#3/#4 四条 🛑；#5–#9 五条 🔶 本轮未动，仍按 P7-2/P7-3 排期。**决议不变**：对外多用户仍 NO-GO，
-**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10）；P7-2c 指标抓取身份、P4 前端画布、真实 key 的文案+生图+本地发布 E2E、P7-3#12 nacos config 排除、P7-3#10 执行闸门容量外置、P7-3#14 路由敏感标记与审计均已完成（10-23）。但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#11 全局配额与 #13/#16 的分页/密钥轮转未做，以及微信真凭证外发未验；改判需重开一次评审。
+**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10）；P7-2c 指标抓取身份、P4 前端画布、真实 key 的文案+生图+本地发布 E2E、P7-3#12 nacos config 排除、P7-3#10 执行闸门容量外置、P7-3#14 路由敏感标记与审计、P7-3#13 列表游标分页均已完成（10-23）。但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#11 全局配额与 #16 的主密钥轮换未做，以及微信真凭证外发未验；改判需重开一次评审。
 
 | # | 落点 | 关键取舍 | 验证 |
 |---|---|---|---|

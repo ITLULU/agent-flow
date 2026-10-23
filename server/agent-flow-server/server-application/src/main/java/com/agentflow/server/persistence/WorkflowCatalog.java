@@ -6,6 +6,7 @@ import com.agentflow.engine.model.WorkflowDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -63,14 +64,28 @@ public class WorkflowCatalog {
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "workflow " + id));
     }
 
-    /** ownerId=null 表示 admin 视角（全部）；列表只回摘要，DSL 原文留在库里。 */
-    public List<WorkflowSummary> list(Long ownerId) {
-        String sql = "SELECT id, name, version, CAST(created_at AS VARCHAR) AS created_at, dsl FROM workflow"
-                + (ownerId == null ? "" : " WHERE owner_id = ?") + " ORDER BY id DESC";
-        Object[] args = ownerId == null ? new Object[0] : new Object[]{ownerId};
-        return jdbc.query(sql, (rs, rowNum) -> new WorkflowSummary(
+    /** ownerId=null 表示 admin 视角（全部）；列表只回摘要，DSL 原文留在库里。beforeId 为游标（不含）。 */
+    public List<WorkflowSummary> list(Long ownerId, int limit, Long beforeId) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT id, name, version, CAST(created_at AS VARCHAR) AS created_at, dsl FROM workflow");
+        List<Object> args = new ArrayList<>();
+        List<String> where = new ArrayList<>();
+        if (ownerId != null) {
+            where.add("owner_id = ?");
+            args.add(ownerId);
+        }
+        if (beforeId != null) {
+            where.add("id < ?");
+            args.add(beforeId);
+        }
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", where));
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, rowNum) -> new WorkflowSummary(
                 rs.getLong("id"), rs.getString("name"), rs.getInt("version"),
-                rs.getString("created_at"), countNodes(rs.getString("dsl"))), args);
+                rs.getString("created_at"), countNodes(rs.getString("dsl"))), args.toArray());
     }
 
     private int countNodes(String dsl) {

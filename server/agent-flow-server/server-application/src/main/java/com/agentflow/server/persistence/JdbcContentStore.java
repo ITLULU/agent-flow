@@ -139,8 +139,8 @@ public class JdbcContentStore implements ContentStore {
         return rows.isEmpty() ? Map.of() : rows.get(0);
     }
 
-    /** 供 API 层列成品（节点不需要，故不进 ContentStore 端口，留在实现类上）。 */
-    public List<Map<String, Object>> list(long ownerId, String kind, int limit) {
+    /** 供 API 层列成品（节点不需要，故不进 ContentStore 端口，留在实现类上）。beforeId 为游标（不含）。 */
+    public List<Map<String, Object>> list(long ownerId, String kind, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
                 "SELECT id, execution_id, kind, title, dir, created_at FROM artifact WHERE owner_id = ?");
         List<Object> args = new ArrayList<>();
@@ -149,7 +149,12 @@ public class JdbcContentStore implements ContentStore {
             sql.append(" AND kind = ?");
             args.add(kind);
         }
-        sql.append(" ORDER BY id DESC LIMIT ").append(Math.max(1, Math.min(limit, 200)));
+        if (beforeId != null) {
+            sql.append(" AND id < ?");
+            args.add(beforeId);
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(limit);
         return jdbc.queryForList(sql.toString(), args.toArray());
     }
 

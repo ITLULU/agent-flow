@@ -9,6 +9,7 @@ import com.agentflow.server.security.PrincipalContext;
 import com.agentflow.server.security.Sensitivity;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.FileSystemResource;
@@ -43,10 +44,18 @@ public class ArtifactController {
 
     @EndpointSensitivity(Sensitivity.USER)
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> list(
+    public ApiResponse<Map<String, Object>> list(
             @RequestParam(required = false) String kind,
-            @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit) {
-        return ApiResponse.ok(store.list(PrincipalContext.get().uid(), kind, limit));
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit,
+            @RequestParam(required = false) Long beforeId) {
+        int size = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> items = store.list(PrincipalContext.get().uid(), kind, size, beforeId);
+        Long nextCursor = items.size() == size
+                ? ((Number) items.get(items.size() - 1).get("id")).longValue() : null;
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", items);
+        page.put("nextCursor", nextCursor);
+        return ApiResponse.ok(page);
     }
 
     @EndpointSensitivity(Sensitivity.USER)

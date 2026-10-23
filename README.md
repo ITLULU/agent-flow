@@ -89,7 +89,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 - **规模判断**：100 QPS 峰值 → 模块化单体 + 虚拟线程执行池，不上微服务/消息队列；PG 为生产库（prod profile），本地默认 profile 不依赖任何中间件。
 - **traceId 口径**：入口过滤器生成或透传（`X-Trace-Id`），进 MDC、进结构化响应体，请求级 RT 以此为唯一统计口径。
 - **创作流水线节点集（P4A）**：`hotspot.fetch`（四源热榜，合并去重、整体不可用降级）→ `article.extract`（链接取正文，自动抽标题）→ `copy.write`（`mode=xiaohongshu|wechat`，按【标记】分节解析出标题/摘要/标签/金句/封面文案）→ `image.cover`（比例预设或任意 `a:b`，长边 1024 折算、边长 512–1440；失败降级为无图）→ `publish.local`（成品库 `article.md`/`note.txt` + `meta.json` + `assets/`）→ `xhs.draft` / `wechat.draft`（发布通道永不静默降级）。
-- **成品库 API**：`GET /api/artifacts[?kind=&limit=]`、`/{id}`、`/{id}/files`、`/{id}/file?path=`；非属主与不存在同为 404（不泄露"存在但无权"），下载走 `filesOf` 白名单 + `resolveInside` 双重防穿越，MIME 未知一律 `application/octet-stream`（不猜 text/html，防存储型 XSS）。
+- **成品库与列表 API**：`GET /api/workflows?limit=&beforeId=`、`GET /api/credentials?limit=&beforeId=`、`GET /api/artifacts?kind=&limit=&beforeId=` 全部为键集分页（默认 50 条、上限 200），响应 `{items,nextCursor}`（`nextCursor=null` 表示末页）；`/{id}`、`/{id}/files`、`/{id}/file?path=`；非属主与不存在同为 404（不泄露"存在但无权"），下载走 `filesOf` 白名单 + `resolveInside` 双重防穿越，MIME 未知一律 `application/octet-stream`（不猜 text/html，防存储型 XSS）。
 
 ## 4. 已知限制（延期台账）
 
@@ -97,7 +97,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、分页与主密钥轮转（#13/#16）、微信真凭证外发未验。
+> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、主密钥轮换（#16）、微信真凭证外发未验。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|

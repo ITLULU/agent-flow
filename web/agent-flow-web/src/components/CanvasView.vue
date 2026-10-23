@@ -347,7 +347,7 @@ function applyNodeStatuses(logs) {
 
 async function loadArtifacts() {
   try {
-    artifacts.value = await api('/api/artifacts?limit=5')
+    artifacts.value = (await api('/api/artifacts?limit=5')).items || []
   } catch {
     artifacts.value = []
   }

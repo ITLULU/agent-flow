@@ -11,6 +11,7 @@ import com.agentflow.server.security.PrincipalContext;
 import com.agentflow.server.security.Sensitivity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -76,8 +78,16 @@ public class CredentialsController {
 
     @EndpointSensitivity(Sensitivity.SENSITIVE)
     @GetMapping
-    public ApiResponse<List<CredentialMeta>> list() {
-        return ApiResponse.ok(credentials.listByOwner(PrincipalContext.get().uid())); // 天然按属主过滤
+    public ApiResponse<Map<String, Object>> list(
+            @RequestParam(required = false, defaultValue = "50") int limit,
+            @RequestParam(required = false) Long beforeId) {
+        int size = Math.max(1, Math.min(limit, 200));
+        List<CredentialMeta> items = credentials.listByOwner(PrincipalContext.get().uid(), size, beforeId);
+        Long nextCursor = items.size() == size ? items.get(items.size() - 1).id() : null;
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", items);
+        page.put("nextCursor", nextCursor);
+        return ApiResponse.ok(page); // 天然按属主过滤
     }
 
     @EndpointSensitivity(Sensitivity.SENSITIVE)

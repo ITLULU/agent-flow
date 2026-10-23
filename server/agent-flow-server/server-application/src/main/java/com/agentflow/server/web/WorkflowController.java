@@ -18,6 +18,7 @@ import com.agentflow.server.security.PrincipalContext;
 import com.agentflow.server.security.Sensitivity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -35,6 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class WorkflowController {
+
+    private static final int DEFAULT_PAGE_SIZE = 50;
+    private static final int MAX_PAGE_SIZE = 200;
 
     private final WorkflowCatalog catalog;
     private final NodeRegistry registry;
@@ -66,12 +71,24 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("workflowId", id));
     }
 
-    /** 自己的清单；admin 看全部。只回摘要，画布按需再拉单条完整 DSL。 */
+    /** 自己的清单；admin 看全部。只回摘要，画布按需再拉单条完整 DSL。beforeId 为游标（不含）。 */
     @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/workflows")
-    public ApiResponse<Map<String, Object>> list() {
+    public ApiResponse<Map<String, Object>> list(
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_PAGE_SIZE) int limit,
+            @RequestParam(required = false) Long beforeId) {
         var principal = PrincipalContext.get();
-        return ApiResponse.ok(Map.of("items", catalog.list(principal.isAdmin() ? null : principal.uid())));
+        int size = clampLimit(limit);
+        var items = catalog.list(principal.isAdmin() ? null : principal.uid(), size, beforeId);
+        Long nextCursor = items.size() == size ? items.get(items.size() - 1).id() : null;
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", items);
+        page.put("nextCursor", nextCursor);
+        return ApiResponse.ok(page);
+    }
+
+    private static int clampLimit(int limit) {
+        return Math.max(1, Math.min(limit, MAX_PAGE_SIZE));
     }
 
     /** 覆盖保存（画布"保存"按钮）：归属校验 + 保存即校验，版本号由仓库递增。 */
