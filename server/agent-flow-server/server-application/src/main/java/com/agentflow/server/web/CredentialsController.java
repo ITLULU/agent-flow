@@ -6,7 +6,9 @@ import com.agentflow.common.error.ErrorCode;
 import com.agentflow.common.security.AesGcmCipher;
 import com.agentflow.server.persistence.CredentialRepository;
 import com.agentflow.server.persistence.CredentialRepository.CredentialMeta;
+import com.agentflow.server.security.EndpointSensitivity;
 import com.agentflow.server.security.PrincipalContext;
+import com.agentflow.server.security.Sensitivity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -44,6 +46,7 @@ public class CredentialsController {
     }
 
     /** body: {"provider":"wechat","name":"main","secrets":{"app_id":"...","app_secret":"..."}} —— 幂等 upsert。 */
+    @EndpointSensitivity(Sensitivity.SENSITIVE)
     @PutMapping
     public ApiResponse<Map<String, Object>> put(@RequestBody String rawJson) {
         AesGcmCipher cipher = requireCipher();
@@ -71,11 +74,13 @@ public class CredentialsController {
         return ApiResponse.ok(Map.of("id", id, "provider", provider, "name", name));
     }
 
+    @EndpointSensitivity(Sensitivity.SENSITIVE)
     @GetMapping
     public ApiResponse<List<CredentialMeta>> list() {
         return ApiResponse.ok(credentials.listByOwner(PrincipalContext.get().uid())); // 天然按属主过滤
     }
 
+    @EndpointSensitivity(Sensitivity.SENSITIVE)
     @DeleteMapping("/{id}")
     public ApiResponse<Map<String, Object>> delete(@PathVariable long id) {
         CredentialMeta meta = credentials.findMeta(id)

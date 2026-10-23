@@ -4,6 +4,8 @@ import com.agentflow.common.api.ApiResponse;
 import com.agentflow.common.error.ApiException;
 import com.agentflow.common.error.ErrorCode;
 import com.agentflow.server.security.AuthService;
+import com.agentflow.server.security.EndpointSensitivity;
+import com.agentflow.server.security.Sensitivity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
@@ -25,6 +27,7 @@ public class AuthController {
         this.mapper = mapper;
     }
 
+    @EndpointSensitivity(Sensitivity.PUBLIC)
     @PostMapping("/register")
     public ApiResponse<Map<String, Object>> register(@RequestBody String rawJson) {
         JsonNode node = parse(rawJson);
@@ -33,6 +36,7 @@ public class AuthController {
         return ApiResponse.ok(Map.of("uid", r.uid(), "username", r.username(), "role", r.role()));
     }
 
+    @EndpointSensitivity(Sensitivity.PUBLIC)
     @PostMapping("/login")
     public ApiResponse<Map<String, Object>> login(@RequestBody String rawJson) {
         JsonNode node = parse(rawJson);

@@ -4,7 +4,9 @@ import com.agentflow.common.api.ApiResponse;
 import com.agentflow.common.error.ApiException;
 import com.agentflow.common.error.ErrorCode;
 import com.agentflow.server.persistence.JdbcContentStore;
+import com.agentflow.server.security.EndpointSensitivity;
 import com.agentflow.server.security.PrincipalContext;
+import com.agentflow.server.security.Sensitivity;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -39,6 +41,7 @@ public class ArtifactController {
         this.store = store;
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping
     public ApiResponse<List<Map<String, Object>>> list(
             @RequestParam(required = false) String kind,
@@ -46,12 +49,14 @@ public class ArtifactController {
         return ApiResponse.ok(store.list(PrincipalContext.get().uid(), kind, limit));
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/{id}")
     public ApiResponse<Map<String, Object>> detail(@PathVariable long id) {
         return ApiResponse.ok(requireVisible(id));
     }
 
     /** 成品目录内的文件清单（相对路径），供前端与下载接口对齐。 */
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/{id}/files")
     public ApiResponse<List<String>> files(@PathVariable long id) {
         requireVisible(id);
@@ -59,6 +64,7 @@ public class ArtifactController {
     }
 
     /** 下载单个产物文件（article.md / note.txt / assets/cover-1-3x4.png …）。 */
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/{id}/file")
     public ResponseEntity<FileSystemResource> file(@PathVariable long id, @RequestParam String path) {
         requireVisible(id);

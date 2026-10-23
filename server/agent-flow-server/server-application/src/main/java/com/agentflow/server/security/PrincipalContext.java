@@ -26,6 +26,11 @@ public final class PrincipalContext {
         return p;
     }
 
+    /** 可选读取：用于匿名可达路径上的旁路逻辑（如审计拦截器），缺主体不抛错。 */
+    public static Principal peek() {
+        return HOLDER.get();
+    }
+
     public static void clear() {
         HOLDER.remove();
     }

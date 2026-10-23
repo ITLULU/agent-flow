@@ -32,7 +32,7 @@
 | §2 配置治理 | 默认安全可跑、三处一致、env 注入 | ✅ | [application.yml:33-57](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/resources/application.yml#L33)，`enabled: false` 默认 + prod profile 覆盖，占位 `${VAR:}` 首次调用才报错 |
 | §3 外部调用四件套 | 超时+捕获+降级+重试 | ✅（本次推翻侦察报告"无超时"指控） | [HttpJson.java:39,103](file:///Users/a/source/agent-flow/server/agent-flow-server/node-adapters/src/main/java/com/agentflow/nodes/support/HttpJson.java#L103)、[WechatDraftNodeExecutor.java:83,302](file:///Users/a/source/agent-flow/server/agent-flow-server/node-adapters/src/main/java/com/agentflow/nodes/wechat/WechatDraftNodeExecutor.java#L302) 全部 connectTimeout(10s)+per-request timeout |
 | §4 异常边界 | advice + code/message/traceId + 路径穿越 | ✅ | `@RestControllerAdvice` + `JdbcContentStore.resolveInside` |
-| §5 安全底座 | 鉴权过滤器骨架、密钥 env、**危险端点 SENSITIVE 标记**、日志脱敏 | ⚠️ 部分 | 过滤器/密钥 ✅；全仓 `grep SENSITIVE` **0 命中**：路由上没有敏感标记，鉴权收口靠人工回忆（§4 #7） |
+| §5 安全底座 | 鉴权过滤器骨架、密钥 env、**危险端点 SENSITIVE 标记**、日志脱敏 | ✅ P7-3#14 | 过滤器/密钥 ✅；18 条路由全部显式标 `PUBLIC/USER/SENSITIVE`，启动期漏标即 fail-fast（`EndpointSensitivityCatalog`），SENSITIVE 访问写审计日志（只含 uid/role/method/URI） |
 | §6 可观测性 | health + **metrics** + 慢请求日志 + 四金指标 | ⚠️ 部分（P7-1 后） | metrics 侧已补：`micrometer-registry-prometheus` + `exposure.include: health,info,prometheus` + 5 项业务指标（§7 #3/#4 证据）；**慢请求日志仍缺**，readiness 组已含 db |
 | §7 存储与数据 | Hikari + 换算注释、Flyway、禁 SELECT * | ✅ | [application.yml:74-79](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/resources/application.yml#L74) 含定容注释；Flyway 3 迁移已在 PG16 实跑 |
 | §8 CI 与测试对称 | CI + 每模块有测试 | 🟡 文件在、运行未证 | `.github/workflows/ci.yml` 存在，本地 196 测试 0 失败；但 P3 之后的提交仍未推远端 ⇒ **GitHub Actions 从未针对当前代码跑过**，"CI 绿灯"目前只是文件级证据（详见 PROGRESS.md 20:50 变更日志） |
@@ -147,7 +147,7 @@
 | 11 | ⚠️ | 容量/DB | 多实例后 `实例×20 > PG 100`；无全局配额；限流各自计数 | application.yml:74-79；RateLimitFilter 注释 :22 | DBA | PgBouncer + 全局令牌（Redis）；十万档必做 |
 | 12 | ⚠️ | 一致性 | 成品库本地文件 + 列表只读本机；DB 写成功/文件失败无补偿 | application.yml:57；LocalArchiveNodeExecutor | 研发 | 对象存储 + 补偿入口（P7） |
 | 13 | ⚠️ | 访问模式 | `listByOwner` 等无分页；node_runs 逐行写 | CredentialRepository.java:40-46 | DBA | 游标分页 + 批量 flush |
-| 14 | ⚠️ | 安全标记 | 路由无 SENSITIVE 标记（bootstrap §5 未兑现） | 全仓 grep 0 命中 | 研发 | 端点元数据 + 鉴权收口清单；0.5 人日 |
+| 14 | ✅ P7-3#14 | 安全标记 | 路由无 SENSITIVE 标记（bootstrap §5 未兑现） | `@EndpointSensitivity` 覆盖 18 条路由，`EndpointSensitivityCatalog` 启动期漏标即失败，`SensitiveAccessAuditInterceptor` 记敏感访问 | 研发 | 反向验证：摘掉 `/api/ping` 标记 ⇒ 启动失败并点名路由；全量 220 测试 0 失败 |
 | 15 | ✅ | 供应链 | 传递依赖 nacos-client 未使用仍有攻击面且刷错误日志 | 已排除 `spring-alibaba-nacos-config`；`nacos-client` 因 `DashScopeApi` 运行期使用而保留 | 运维 | 已完成（P7-3#12）：`DependencyIsolationTest` + 聚合健康 UP 断言 + 容器复验；启动日志 nacos/ERROR 为 0。彻底移除 nacos-client 需上游修复或 shim，挂后续 |
 | 16 | ⚠️ | 密钥治理 | 主密钥无 kid/轮换流程 | AesGcmCipher 使用点；AuthConfig.java:40-52 | 安全 | 双读单写轮换方案 |
 | 17 | ⚠️ | 韧性 | 下游无熔断/舱壁，一慢即占满 16 槽 | ExecutionManager + 各节点共用池 | 研发 | 按依赖类型分舱壁；P7 |
@@ -175,7 +175,7 @@
 ## 7. P7-1 修复回写（2026-10-22，四条 🛑 全部落地）
 
 修复范围＝§4 的 #1/#2/#3/#4 四条 🛑；#5–#9 五条 🔶 本轮未动，仍按 P7-2/P7-3 排期。**决议不变**：对外多用户仍 NO-GO，
-**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10）；P7-2c 指标抓取身份、P4 前端画布、真实 key 的文案+生图+本地发布 E2E、P7-3#12 nacos config 排除、P7-3#10 执行闸门容量外置均已完成（10-23）。但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#11 全局配额与 #13–#16 的分页/敏感标记/密钥轮转未做，以及微信真凭证外发未验；改判需重开一次评审。
+**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10）；P7-2c 指标抓取身份、P4 前端画布、真实 key 的文案+生图+本地发布 E2E、P7-3#12 nacos config 排除、P7-3#10 执行闸门容量外置、P7-3#14 路由敏感标记与审计均已完成（10-23）。但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#11 全局配额与 #13/#16 的分页/密钥轮转未做，以及微信真凭证外发未验；改判需重开一次评审。
 
 | # | 落点 | 关键取舍 | 验证 |
 |---|---|---|---|

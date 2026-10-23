@@ -1,6 +1,8 @@
 package com.agentflow.server.web;
 
 import com.agentflow.common.api.ApiResponse;
+import com.agentflow.server.security.EndpointSensitivity;
+import com.agentflow.server.security.Sensitivity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -8,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class PingController {
 
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/api/ping")
     public ApiResponse<String> ping() {
         return ApiResponse.ok("pong");

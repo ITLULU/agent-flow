@@ -13,7 +13,9 @@ import com.agentflow.server.persistence.ExecutionQueryRepository.ExecutionView;
 import com.agentflow.server.persistence.WorkflowCatalog;
 import com.agentflow.server.persistence.WorkflowCatalog.StoredWorkflow;
 import com.agentflow.server.schedule.ScheduleService;
+import com.agentflow.server.security.EndpointSensitivity;
 import com.agentflow.server.security.PrincipalContext;
+import com.agentflow.server.security.Sensitivity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
@@ -52,6 +54,7 @@ public class WorkflowController {
         this.mapper = mapper;
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @PostMapping("/workflows")
     public ApiResponse<Map<String, Object>> create(@RequestBody String rawJson) {
         WorkflowDefinition def = parse(rawJson);
@@ -64,6 +67,7 @@ public class WorkflowController {
     }
 
     /** 自己的清单；admin 看全部。只回摘要，画布按需再拉单条完整 DSL。 */
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/workflows")
     public ApiResponse<Map<String, Object>> list() {
         var principal = PrincipalContext.get();
@@ -71,6 +75,7 @@ public class WorkflowController {
     }
 
     /** 覆盖保存（画布"保存"按钮）：归属校验 + 保存即校验，版本号由仓库递增。 */
+    @EndpointSensitivity(Sensitivity.USER)
     @PutMapping("/workflows/{id}")
     public ApiResponse<Map<String, Object>> update(@PathVariable long id, @RequestBody String rawJson) {
         requireVisible(id);
@@ -83,11 +88,13 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("workflowId", id));
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/workflows/{id}")
     public ApiResponse<WorkflowDefinition> get(@PathVariable long id) {
         return ApiResponse.ok(catalog.parseDsl(requireVisible(id)));
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @PostMapping("/workflows/{id}/executions")
     public ApiResponse<Map<String, Object>> trigger(@PathVariable long id) {
         WorkflowDefinition def = catalog.parseDsl(requireVisible(id));
@@ -96,6 +103,7 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("executionId", executionId, "traceId", traceId == null ? "" : traceId));
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/executions/{id}")
     public ApiResponse<ExecutionView> execution(@PathVariable long id) {
         ExecutionView view = executionQuery.findById(id);
@@ -104,6 +112,7 @@ public class WorkflowController {
     }
 
     /** 登记/更新 cron 调度：{cron:"0 0/5 * * * *", enabled:true}；cron 非法 A0400。 */
+    @EndpointSensitivity(Sensitivity.USER)
     @PutMapping("/workflows/{id}/schedule")
     public ApiResponse<Map<String, Object>> schedule(@PathVariable long id, @RequestBody String rawJson) {
         requireVisible(id);
@@ -120,6 +129,7 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("workflowId", id, "nextFireAt", next == null ? "" : next));
     }
 
+    @EndpointSensitivity(Sensitivity.USER)
     @DeleteMapping("/workflows/{id}/schedule")
     public ApiResponse<Map<String, Object>> unschedule(@PathVariable long id) {
         requireVisible(id);

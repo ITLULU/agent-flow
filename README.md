@@ -97,7 +97,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、分页/敏感标记/密钥轮转（#13–#16）、微信真凭证外发未验。
+> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、分页与主密钥轮转（#13/#16）、微信真凭证外发未验。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
