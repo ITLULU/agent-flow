@@ -87,9 +87,9 @@ public interface NodeExecutor {
 
 ### 4.3 执行模型
 
-- 拓扑排序 + 环检测在**保存时**做（非法 DAG 直接 400），执行时按拓扑序逐节点跑；无分支场景一期串行即可（并行分支二期）
+- 拓扑排序 + 环检测在**保存时**做（非法 DAG 直接 400）；执行时按依赖分层，同层节点并发、层末汇合（P7-3#18 已落地，宽度 `agentflow.engine.max-parallel-nodes`）。单链流水线退化为逐个执行，语义与原串行版一致
 - 每次执行一条 `execution` 记录 + 每节点一条 `execution_node_log`（输入输出摘要、延迟、degraded 标志、traceId）
-- 执行器线程：Java 21 虚拟线程，`Executors.newVirtualThreadPerTaskExecutor()` + 信号量限并发（默认 16，防打爆 LLM API 配额——注释里写清：这是全局唯一的"执行饱和度"口径）
+- 执行器线程：Java 21 虚拟线程，`Executors.newVirtualThreadPerTaskExecutor()`；饱和度有两层口径——`agentflow.exec.max-concurrent`（进程内同时执行的**工作流**数，默认 16）× `agentflow.engine.max-parallel-nodes`（单条执行内同层**节点**数，默认 8），真正限制对外请求量的是按依赖独立的舱壁（`agentflow.resilience.*`）
 - 失败恢复：执行幂等可重跑（`POST /executions/{id}/retry`），公众号草稿节点幂等由"先查当日同名草稿"实现
 
 ## 5. LlmGateway（多模型可配置的实现）
@@ -167,7 +167,7 @@ public interface LlmGateway {
 |---|---|---|
 | pgvector RAG 节点（本地参考文档） | 二期，引擎就绪后加 `rag.retrieve` 节点 | pgvector 已随 compose 安装，代码未接 |
 | Redis 全局限流/分布式执行锁 | 上云且多实例部署时 | 进程内 Caffeine 代替 |
-| 并行分支/子工作流 | 出现真实多分支流水线需求 | 引擎已按 DAG 设计，只缺并行调度 |
+| ~~并行分支/子工作流~~ | 并行分支已落地（P7-3#18）；子工作流仍未做 | 引擎按依赖分层并发，宽度 `agentflow.engine.max-parallel-nodes`；子工作流需要节点级"引用另一条 DSL"的语义，尚未设计 |
 | 多租户/节点市场/插件热加载 | 用户量 >50w 或开放生态 | 表已预留 tenant_id 默认值 |
 | 告警通知（执行失败推送） | 内测反馈收集期后 | 执行日志已可查 |
 

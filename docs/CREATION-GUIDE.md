@@ -110,5 +110,5 @@ curl -s -o article.md "$BASE_URL/api/artifacts/3/file?path=article.md" -H "Autho
 
 - `xhs.draft` 无官方公开草稿 API：默认只产出**小红书图文包**（标题/正文/话题/图片清单）落本地成品库；配 `endpoint` 才外发，失败记 warnings 不判 FAILED。
 - 热榜源结构变更最易表现为「取到 JSON 但零条目」，节点会显式记 `failedSources`；`endpointOverride` 可换源不改码。
-- 并行分支未启用（v1 拓扑序串行），配图与主图当前串行产出。
+- 引擎已支持同层并发（P7-3#18：按依赖分层、同层节点同时跑，宽度 `agentflow.engine.max-parallel-nodes` 默认 8）。本文推荐流水线是 a→b→c→e→f 单链，所以配图与主图仍逐个产出；想让两者并发就把它们挂成同一上游的两个兄弟节点（下游各自读上游输出，无需改代码）。
 - 真 key 联调：注入 `AI_API_KEY`（+ 微信 appid/secret）后跑上面第 3 节命令即可；文案 + 生图 + 本地发布三段已用真实 key 实测 SUCCESS（微信草稿仍需真 appid/secret）。

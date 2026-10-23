@@ -84,6 +84,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.resilience.dependencies.<name>.max-concurrent` | llm 8 / image 4 / wechat 4 / xhs 4 / web 8 | 每个依赖独立的进程内并发上限；满舱壁立即 `C0004`（不排队、不打下游），防止一个慢依赖占满全部执行槽 |
 | `agentflow.resilience.dependencies.<name>.failure-threshold` | llm/image 5，wechat/xhs 3，web 10 | 连续"依赖侧失败"（仅 C0001 连接拒绝 / C0002 超时 / C0003 协议错误）达到阈值即熔断；A04xx 等客户端错误视为对端可达并重置计数 |
 | `agentflow.resilience.dependencies.<name>.open-duration` | 30s（wechat/xhs 60s） | 熔断冷却时长；到期后放行 1 个半开探测，成功闭合、失败重新 open。open 期间节点直接 `C0004`，引擎判不可重试 |
+| `agentflow.engine.max-parallel-nodes` | `${AGENTFLOW_ENGINE_MAX_PARALLEL_NODES:8}` | 同一条执行内"同一层（互不依赖）节点"的并发上限（P7-3#18 并行支路）。调大不会让单节点变快，只会让依赖抖动时更容易打穿舱壁；与 `exec.max-concurrent` 相乘才是进程内节点任务的上界。`<1` 启动即失败 |
 
 ## 3. 架构与关键决策
 
@@ -121,7 +122,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
 | ~~cron 定时触发（目前仅手动 API 触发）~~ | ✅ P3 已交付（next_fire_at CAS 领发 + 节拍参数化，见 docs/PROGRESS.md） | - |
-| 并行分支执行（v1 拓扑序串行） | 设延期 | P4 后评估 |
+| ~~并行分支执行（v1 拓扑序串行）~~ | ✅ P7-3#18 已修：引擎改为按依赖分层，同层节点并发（宽度 `agentflow.engine.max-parallel-nodes`，默认 8），层末汇合即止损点；支路失败 ⇒ 下游零放行、同层兄弟不抢占取消、结果仍按拓扑位序返回。`WorkflowEngineParallelTest` 5 条含反向对照（宽度=1 时菱形屏障必然失败，证明"并发"不是假绿） | - |
 | ~~LLM/生图/采集/发布节点~~ | ✅ P2 已交付（http.collect/llm.chat/image.wanxiang/wechat.draft，见 docs/PROGRESS.md） | - |
 | ~~创作流水线闭环（热榜/链接/话题 → 双渠道文案 → 指定比例主图 → 成品库 → 草稿）~~ | ✅ P4A 已交付（hotspot.fetch/article.extract/copy.write/image.cover/publish.local/xhs.draft/wechat.draft + `/api/artifacts*`，`P4CreationPipelineE2ETests` 两条通道端到端，见 docs/CREATION-GUIDE.md） | - |
 | 百炼真实链路 | ✅ key 已注入并实测（`AI_API_KEY` → DashScope `qwen-plus` HTTP 200）；公众号/小红书草稿外发仍需 `WECHAT_*` 真凭证后跑 `scripts/run-creation.sh` | 用户执行 |

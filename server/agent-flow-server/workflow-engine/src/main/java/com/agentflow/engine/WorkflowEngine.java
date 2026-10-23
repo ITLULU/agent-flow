@@ -4,6 +4,7 @@ import com.agentflow.common.error.ApiException;
 import com.agentflow.common.error.ErrorCode;
 import com.agentflow.common.trace.TraceIdUtils;
 import com.agentflow.engine.dag.DagValidator;
+import com.agentflow.engine.model.EdgeDef;
 import com.agentflow.engine.model.ExecutionResult;
 import com.agentflow.engine.model.ExecutionStatus;
 import com.agentflow.engine.model.NodeDef;
@@ -17,25 +18,34 @@ import com.agentflow.engine.spi.NodeExecutor;
 import com.agentflow.engine.spi.NodeInput;
 import com.agentflow.engine.spi.NodeOutput;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * DAG 执行器：拓扑序逐节点执行（v1 不做并行分支，见延期台账）。
+ * DAG 执行器：按依赖分层，同层节点并发执行（并行宽度上限 maxParallelNodes），层末汇合。
  * 每个节点强制执行 SPI 四件套：orTimeout 超时、异常捕获分类、重试指数退避、降级显性标志。
  * 节点任务跑在虚拟线程上，traceId 手工透传（虚拟线程不继承 MDC）。
+ * 失败语义：某节点重试耗尽且无降级 ⇒ 终止执行；同层兄弟不会被抢占取消（汇合点即止损线），
+ * 下一层不再启动——这是"宁可少跑也不能带病外发"的显式取舍。
  */
 public class WorkflowEngine {
 
@@ -48,10 +58,16 @@ public class WorkflowEngine {
     private final NodeRegistry registry;
     private final ExecutionLogStore store;
     private final ExecutorService nodePool = Executors.newVirtualThreadPerTaskExecutor();
+    private final int maxParallelNodes;
 
     public WorkflowEngine(NodeRegistry registry, ExecutionLogStore store) {
+        this(registry, store, 8);
+    }
+
+    public WorkflowEngine(NodeRegistry registry, ExecutionLogStore store, int maxParallelNodes) {
         this.registry = registry;
         this.store = store;
+        this.maxParallelNodes = Math.max(1, maxParallelNodes);
     }
 
     /**
@@ -64,75 +80,154 @@ public class WorkflowEngine {
             throw new ApiException(ErrorCode.WORKFLOW_INVALID, String.join("; ", vr.errors()));
         }
 
-        Map<String, Object> upstream = new HashMap<>();
-        List<NodeRunResult> results = new ArrayList<>();
-        boolean anyDegraded = false;
+        Map<String, Object> upstream = new ConcurrentHashMap<>();
+        List<NodeRunResult> results = Collections.synchronizedList(new ArrayList<>());
+        Set<String> done = ConcurrentHashMap.newKeySet();
+        Map<String, Set<String>> preds = predecessors(def);
+        List<String> order = vr.topoOrder();
+        AtomicBoolean aborted = new AtomicBoolean();
+        AtomicBoolean anyDegraded = new AtomicBoolean();
+        Semaphore slots = new Semaphore(maxParallelNodes);
 
-        for (String nodeId : vr.topoOrder()) {
-            NodeDef nodeDef = def.nodeById(nodeId);
-            NodeExecutor executor = registry.require(nodeDef.type());
-            ExecutionContext ctx = new ExecutionContext(traceId, workflowId, executionId);
-            Map<String, Object> params = nodeDef.params() == null ? Map.of() : nodeDef.params();
-            NodeInput input = new NodeInput(params, Map.copyOf(upstream));
-
-            long start = System.nanoTime();
-            int maxAttempts = 1 + executor.retryPolicy().maxAttempts();
-            Throwable lastError = null;
-            NodeOutput output = null;
-            int usedAttempts = 0;
-            boolean outcomeUnknown = false;
-
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                usedAttempts = attempt;
-                try {
-                    output = executeOnce(executor, input, ctx, traceId);
-                    lastError = null;
-                    outcomeUnknown = false;
-                    break;
-                } catch (Throwable t) {
-                    lastError = unwrap(t);
-                    outcomeUnknown = executor.hasSideEffects() && isOutcomeUnknown(lastError);
-                    log.warn("[traceId={}] 节点 {} 第 {} 次尝试失败: {}{}", traceId, nodeId, attempt, brief(lastError),
-                            outcomeUnknown ? "（该节点有外部副作用，结果不可知 ⇒ 不再重试）" : "");
-                    if (!isRetryable(lastError) || attempt == maxAttempts || outcomeUnknown) {
-                        break;
+        // 分层并发：同一层（互相无依赖）的节点同时跑，层末汇合后再算下一层。
+        // 之所以在层末设汇合点而不是彻底异步：分支失败要能立刻止损，汇合点就是天然的止损线，
+        // 也让"上游数据已就绪"这个前提在每个节点上都可证。
+        while (!aborted.get()) {
+            List<String> wave = new ArrayList<>();
+            for (String nodeId : order) {
+                if (!done.contains(nodeId) && done.containsAll(preds.get(nodeId))) {
+                    wave.add(nodeId);
+                }
+            }
+            if (wave.isEmpty()) {
+                break;
+            }
+            List<CompletableFuture<Void>> inFlight = new ArrayList<>();
+            for (String nodeId : wave) {
+                inFlight.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        slots.acquire();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        aborted.set(true);
+                        return;
                     }
-                    sleepQuietly(executor.retryPolicy().firstBackoffMs() * (1L << (attempt - 1)));
-                }
+                    try {
+                        if (!aborted.get()) {
+                            runNode(nodeId, def, upstream, workflowId, executionId, traceId, results, anyDegraded, aborted);
+                        }
+                    } finally {
+                        slots.release();
+                        // 失败也算"处理过"：不标记会让下一层永远等不到，而循环已由 aborted 收口
+                        done.add(nodeId);
+                    }
+                }, nodePool));
             }
-            long durationMs = (System.nanoTime() - start) / 1_000_000L;
-
-            if (lastError == null) {
-                upstream.put(nodeId, output.data());
-                NodeRunResult r = new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.SUCCESS, usedAttempts, durationMs, output.data(), null);
-                results.add(r);
-                store.appendNodeLog(executionId, r);
-            } else {
-                Optional<NodeOutput> degraded = tryDegrade(executor, input, lastError);
-                if (degraded.isPresent()) {
-                    anyDegraded = true;
-                    NodeOutput d = degraded.get();
-                    upstream.put(nodeId, d.data());
-                    NodeRunResult r = new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.DEGRADED, usedAttempts, durationMs,
-                            d.data(), d.degradeReason());
-                    results.add(r);
-                    store.appendNodeLog(executionId, r);
-                    log.warn("[traceId={}] 节点 {} 走降级路径继续执行: {}", traceId, nodeId, d.degradeReason());
-                } else {
-                    NodeRunResult r = new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.FAILED, usedAttempts, durationMs,
-                            Map.of(), brief(lastError) + (outcomeUnknown ? SIDE_EFFECT_NOTE : ""));
-                    results.add(r);
-                    store.appendNodeLog(executionId, r);
-                    store.finish(executionId, ExecutionStatus.FAILED.name());
-                    log.error("[traceId={}] 节点 {} 重试耗尽且无降级，执行终止: {}", traceId, nodeId, brief(lastError));
-                    return new ExecutionResult(executionId, ExecutionStatus.FAILED, List.copyOf(results));
-                }
-            }
+            CompletableFuture.allOf(inFlight.toArray(new CompletableFuture[0])).join();
         }
 
-        ExecutionStatus finalStatus = anyDegraded ? ExecutionStatus.SUCCESS_WITH_DEGRADED : ExecutionStatus.SUCCESS;
+        if (aborted.get() || done.size() != order.size()) {
+            store.finish(executionId, ExecutionStatus.FAILED.name());
+            return new ExecutionResult(executionId, ExecutionStatus.FAILED, ordered(results, order));
+        }
+
+        ExecutionStatus finalStatus = anyDegraded.get() ? ExecutionStatus.SUCCESS_WITH_DEGRADED : ExecutionStatus.SUCCESS;
         store.finish(executionId, finalStatus.name());
-        return new ExecutionResult(executionId, finalStatus, List.copyOf(results));
+        return new ExecutionResult(executionId, finalStatus, ordered(results, order));
+    }
+
+    /** 单节点：SPI 四件套（超时、异常分类、指数退避重试、降级显性）全部在这里，语义与串行版本逐字一致。 */
+    private void runNode(String nodeId, WorkflowDefinition def, Map<String, Object> upstream, long workflowId,
+            long executionId, String traceId, List<NodeRunResult> results,
+            AtomicBoolean anyDegraded, AtomicBoolean aborted) {
+        NodeDef nodeDef = def.nodeById(nodeId);
+        NodeExecutor executor = registry.require(nodeDef.type());
+        ExecutionContext ctx = new ExecutionContext(traceId, workflowId, executionId);
+        Map<String, Object> params = nodeDef.params() == null ? Map.of() : nodeDef.params();
+        NodeInput input = new NodeInput(params, Map.copyOf(upstream));
+
+        long start = System.nanoTime();
+        int maxAttempts = 1 + executor.retryPolicy().maxAttempts();
+        Throwable lastError = null;
+        NodeOutput output = null;
+        int usedAttempts = 0;
+        boolean outcomeUnknown = false;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            usedAttempts = attempt;
+            try {
+                output = executeOnce(executor, input, ctx, traceId);
+                lastError = null;
+                outcomeUnknown = false;
+                break;
+            } catch (Throwable t) {
+                lastError = unwrap(t);
+                outcomeUnknown = executor.hasSideEffects() && isOutcomeUnknown(lastError);
+                log.warn("[traceId={}] 节点 {} 第 {} 次尝试失败: {}{}", traceId, nodeId, attempt, brief(lastError),
+                        outcomeUnknown ? "（该节点有外部副作用，结果不可知 ⇒ 不再重试）" : "");
+                if (!isRetryable(lastError) || attempt == maxAttempts || outcomeUnknown) {
+                    break;
+                }
+                sleepQuietly(executor.retryPolicy().firstBackoffMs() * (1L << (attempt - 1)));
+            }
+        }
+        long durationMs = (System.nanoTime() - start) / 1_000_000L;
+
+        if (lastError == null) {
+            upstream.put(nodeId, output.data());
+            record(executionId, results, new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.SUCCESS,
+                    usedAttempts, durationMs, output.data(), null));
+        } else {
+            Optional<NodeOutput> degraded = tryDegrade(executor, input, lastError);
+            if (degraded.isPresent()) {
+                anyDegraded.set(true);
+                NodeOutput d = degraded.get();
+                upstream.put(nodeId, d.data());
+                record(executionId, results, new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.DEGRADED,
+                        usedAttempts, durationMs, d.data(), d.degradeReason()));
+                log.warn("[traceId={}] 节点 {} 走降级路径继续执行: {}", traceId, nodeId, d.degradeReason());
+            } else {
+                record(executionId, results, new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.FAILED,
+                        usedAttempts, durationMs, Map.of(),
+                        brief(lastError) + (outcomeUnknown ? SIDE_EFFECT_NOTE : "")));
+                log.error("[traceId={}] 节点 {} 重试耗尽且无降级，执行终止: {}", traceId, nodeId, brief(lastError));
+                aborted.set(true);
+            }
+        }
+    }
+
+    private void record(long executionId, List<NodeRunResult> results, NodeRunResult r) {
+        // 并发完成顺序不定，落库与收集放在同一临界区：时间线一次插入不被交错写撕裂
+        synchronized (results) {
+            results.add(r);
+            store.appendNodeLog(executionId, r);
+        }
+    }
+
+    private static Map<String, Set<String>> predecessors(WorkflowDefinition def) {
+        Map<String, Set<String>> preds = new HashMap<>();
+        for (NodeDef n : def.nodes()) {
+            preds.put(n.id(), new HashSet<>());
+        }
+        List<EdgeDef> edges = def.edges() == null ? List.of() : def.edges();
+        for (EdgeDef e : edges) {
+            Set<String> from = preds.get(e.to());
+            if (from != null) {
+                from.add(e.from());
+            }
+        }
+        return preds;
+    }
+
+    /** 返回值按拓扑位序排列：执行时间线要稳定可读，不能随并发完成顺序漂移。 */
+    private static List<NodeRunResult> ordered(List<NodeRunResult> results, List<String> order) {
+        Map<String, Integer> rank = new HashMap<>();
+        for (int i = 0; i < order.size(); i++) {
+            rank.put(order.get(i), i);
+        }
+        List<NodeRunResult> out = new ArrayList<>(results);
+        out.sort(Comparator.comparingInt(r -> rank.getOrDefault(r.nodeId(), 0)));
+        return List.copyOf(out);
     }
 
     private NodeOutput executeOnce(NodeExecutor executor, NodeInput input, ExecutionContext ctx, String traceId) {

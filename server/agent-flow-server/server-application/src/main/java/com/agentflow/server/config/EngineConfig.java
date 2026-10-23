@@ -14,7 +14,7 @@ import com.agentflow.engine.spi.NodeExecutor;
 
 /** 引擎装配：节点执行器以 Bean 形式自动注册（P2 新增节点只需声明 Bean，零改动这里）。 */
 @Configuration
-@EnableConfigurationProperties(ResilienceProperties.class)
+@EnableConfigurationProperties({ResilienceProperties.class, EngineProperties.class})
 public class EngineConfig {
 
     @Bean
@@ -31,7 +31,7 @@ public class EngineConfig {
     }
 
     @Bean
-    public WorkflowEngine workflowEngine(NodeRegistry registry, ExecutionLogStore store) {
-        return new WorkflowEngine(registry, store);
+    public WorkflowEngine workflowEngine(NodeRegistry registry, ExecutionLogStore store, EngineProperties props) {
+        return new WorkflowEngine(registry, store, props.maxParallelNodes());
     }
 }

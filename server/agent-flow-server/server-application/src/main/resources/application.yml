@@ -75,6 +75,10 @@ agentflow:
     max-concurrent: ${AGENTFLOW_EXEC_MAX_CONCURRENT:16}
     acquire-timeout: ${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}
     max-queued: ${AGENTFLOW_EXEC_MAX_QUEUED:64}
+  engine:
+    # 同一层（互不依赖的支路）并发上限：并行分支执行时同时活跃的节点数天花板。
+    # 上限保护的是下游舱壁与进程连接/线程预算，调大不会让单节点变快，只会让抖动时更容易打穿依赖。
+    max-parallel-nodes: ${AGENTFLOW_ENGINE_MAX_PARALLEL_NODES:8}
   resilience:
     # 下游依赖舱壁 + 熔断（评审 P7-3 #17）：进程内实现，多实例各自计数（见 README 限制）。
     # 只统计 C0001-C0003（连接/超时/协议）为依赖失败；A04xx 等客户端错误证明对端可达，会重置计数。

@@ -3,6 +3,8 @@ package com.agentflow.server;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -54,11 +56,13 @@ class WorkflowApiE2ETests {
         assertThat(triggered.getStatusCode()).isEqualTo(HttpStatus.OK);
         long executionId = extractLong(triggered.getBody(), "executionId");
 
-        // 轮询至终态（上限 5s）
+        // 轮询至终态（上限 5s）：只认执行级 status，节点级 status 也叫 SUCCESS，
+        // 用全文包含判断会把"a 已完成、b 还在跑"的半截执行当成终态提前跳出（并行改造后这个窗口更宽）
         String detail = null;
         for (int i = 0; i < 25; i++) {
             detail = rest.getForObject("/api/executions/" + executionId, String.class);
-            if (detail != null && (detail.contains("SUCCESS") || detail.contains("FAILED"))) {
+            String execStatus = executionStatus(detail);
+            if (execStatus != null && !execStatus.equals("RUNNING")) {
                 break;
             }
             TimeUnit.MILLISECONDS.sleep(200);
@@ -67,6 +71,7 @@ class WorkflowApiE2ETests {
         assertThat(detail).contains("SUCCESS");
         assertThat(detail).contains("\"traceId\"");
         assertThat(detail).contains("ping").contains("pong"); // 两个节点的输出都进了执行日志
+        assertThat(detail).contains("\"nodeId\":\"a\"").contains("\"nodeId\":\"b\""); // 终态里两个节点都在
         assertThat(detail).contains("core.echo").doesNotContain("FAILED");
     }
 
@@ -121,5 +126,17 @@ class WorkflowApiE2ETests {
             end++;
         }
         return Long.parseLong(json.substring(start, end));
+    }
+
+    /**
+     * 执行级状态：节点列表里也有 "status"，但只有执行记录的那一个后面紧跟 startedAt，
+     * 用它做锚点，避免把"部分节点已完成"的 RUNNING 执行读成终态。
+     */
+    private String executionStatus(String json) {
+        if (json == null) {
+            return null;
+        }
+        Matcher m = Pattern.compile("\"status\":\"([A-Z_]+)\",\"startedAt\"").matcher(json);
+        return m.find() ? m.group(1) : null;
     }
 }
