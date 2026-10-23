@@ -1,10 +1,13 @@
 package com.agentflow.server.exec;
 
+import com.agentflow.common.error.ApiException;
+import com.agentflow.common.error.ErrorCode;
 import com.agentflow.engine.WorkflowEngine;
 import com.agentflow.engine.model.ExecutionResult;
 import com.agentflow.engine.model.ExecutionStatus;
 import com.agentflow.engine.model.WorkflowDefinition;
 import com.agentflow.engine.port.ExecutionLogStore;
+import com.agentflow.server.config.ExecProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -12,72 +15,146 @@ import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 
 /**
  * 执行调度门面：API 层只面对这里，不直接触引擎。
- * 并发口径：虚拟线程承接提交 + Semaphore(16) 限制同时"正在跑"的工作流数——
- * 单机 100 QPS 峰值下触发不是瓶颈（执行是异步长任务），闸门防的是 LLM/外部依赖被自己打爆（见 IMPLEMENTATION-PLAN §9）。
- * 指标口径（评审 P6 #3：闸门是暗箱就等于没有闸门）：
- * submitted/finished 给错误率与吞吐，duration 给 RT，queue.wait + slots.queued/available 给饱和度。
+ * 并发口径：虚拟线程承接提交 + 信号量限制同时"正在跑"的工作流数，容量由 agentflow.exec.* 运行期配置。
+ * 闸门防的是 LLM/外部依赖被自己打爆（见 IMPLEMENTATION-PLAN §9），但闸门必须可见、可弃：
+ * 排队超过 max-queued 同步 429（不产生执行记录）；等待超过 acquire-timeout 则落 FAILED 并释放槽位，
+ * 避免"提交成功却永远 RUNNING"的静默排队（评审 P7-3 #10）。
+ * 指标口径（评审 P6 #3）：submitted/finished 给错误率与吞吐，duration 给 RT，
+ * queue.wait + slots.available/queued 给饱和度，rejected{reason} 让丢弃量有账可查。
  */
 @Service
+@EnableConfigurationProperties(ExecProperties.class)
 public class ExecutionManager {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionManager.class);
 
-    /** 同时执行的工作流上限（单实例口径，多实例部署时改全局配额归 P3 限流层） */
-    private static final int MAX_CONCURRENT_EXECUTIONS = 16;
-
     private final WorkflowEngine engine;
     private final ExecutionLogStore store;
     private final MeterRegistry registry;
-    private final Semaphore slots = new Semaphore(MAX_CONCURRENT_EXECUTIONS, true);
+    private final ExecProperties props;
+    private final Semaphore slots;
+    private final AtomicInteger waiting = new AtomicInteger();
     private final ExecutorService dispatcher = Executors.newVirtualThreadPerTaskExecutor();
     private final Timer executionDuration;
     private final Timer queueWait;
 
-    public ExecutionManager(WorkflowEngine engine, ExecutionLogStore store, MeterRegistry registry) {
+    public ExecutionManager(WorkflowEngine engine, ExecutionLogStore store, MeterRegistry registry,
+                            ExecProperties props) {
         this.engine = engine;
         this.store = store;
         this.registry = registry;
+        this.props = props;
+        this.slots = new Semaphore(props.maxConcurrent(), true);
         this.executionDuration = Timer.builder("agentflow.execution.duration")
                 .description("一次工作流执行从拿到执行槽到收尾的耗时").register(registry);
         this.queueWait = Timer.builder("agentflow.execution.queue.wait")
                 .description("提交后等待执行槽的时间——排队即饱和信号").register(registry);
         // gauge 只存引用、抓取时回调，注册放在 slots 初始化之后
         registry.gauge("agentflow.exec.slots.available", slots, s -> (double) s.availablePermits());
-        registry.gauge("agentflow.exec.slots.queued", slots, s -> (double) s.getQueueLength());
+        registry.gauge("agentflow.exec.slots.queued", waiting, w -> (double) w.get());
+        registry.gauge("agentflow.exec.slots.capacity", slots, s -> (double) props.maxConcurrent());
     }
 
-    /** 预创建执行记录并异步跑链路，立即返回 executionId 供轮询。 */
+    /** 预创建执行记录并异步跑链路，立即返回 executionId 供轮询；排队已满则同步拒绝（429）。 */
     public long submit(long workflowId, WorkflowDefinition def, String traceId) {
-        long executionId = store.createExecution(workflowId, traceId);
         long enqueuedAt = System.nanoTime();
-        Counter.builder("agentflow.execution.submitted").register(registry).increment();
-        dispatcher.submit(() -> {
-            try {
-                slots.acquire();
-                queueWait.record(Duration.ofNanos(System.nanoTime() - enqueuedAt));
-                try {
-                    long startedAt = System.nanoTime();
-                    ExecutionResult result = engine.run(executionId, workflowId, def, traceId);
-                    executionDuration.record(Duration.ofNanos(System.nanoTime() - startedAt));
-                    recordFinish(result.status().name());
-                    log.info("[traceId={}] 执行 {} 完成: {}", traceId, executionId, result.status());
-                } finally {
-                    slots.release();
-                }
-            } catch (Exception e) {
-                // 引擎内部已收敛节点异常；走到这里的是定义非法/持久层故障，必须兜底收尾，禁止留 RUNNING 僵尸
-                log.error("[traceId={}] 执行 {} 异常终止", traceId, executionId, e);
-                recordFinish("ABORTED");
-                safeFinish(executionId);
+        boolean hasSlot = tryAcquireNow();
+        if (!hasSlot) {
+            int queued = waiting.incrementAndGet();
+            if (queued > props.maxQueued()) {
+                waiting.decrementAndGet();
+                recordRejected("queue_full");
+                throw new ApiException(ErrorCode.RATE_LIMITED,
+                        "执行队列已满（等待 " + (queued - 1) + "/" + props.maxQueued() + "），请稍后重试");
             }
-        });
+        }
+        long executionId;
+        try {
+            executionId = store.createExecution(workflowId, traceId);
+        } catch (RuntimeException e) {
+            releaseUnusedSlot(hasSlot);
+            throw e;
+        }
+        Counter.builder("agentflow.execution.submitted").register(registry).increment();
+        try {
+            dispatcher.submit(() -> run(executionId, workflowId, def, traceId, hasSlot, enqueuedAt));
+        } catch (RuntimeException e) {
+            releaseUnusedSlot(hasSlot);
+            safeFinish(executionId);
+            throw e;
+        }
         return executionId;
+    }
+
+    private void run(long executionId, long workflowId, WorkflowDefinition def, String traceId,
+                     boolean hasSlot, long enqueuedAt) {
+        try {
+            if (!hasSlot) {
+                boolean acquired = false;
+                try {
+                    acquired = slots.tryAcquire(props.acquireTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    waiting.decrementAndGet();
+                }
+                if (!acquired) {
+                    // 槽位是排队者的唯一出口：等不到就必须显式失败，否则执行记录永远是 RUNNING
+                    log.warn("[traceId={}] 执行 {} 排队超过 {}ms，放弃执行", traceId, executionId,
+                            props.acquireTimeout().toMillis());
+                    recordRejected("acquire_timeout");
+                    recordFinish(ExecutionStatus.FAILED.name());
+                    safeFinish(executionId);
+                    return;
+                }
+            }
+            try {
+                queueWait.record(Duration.ofNanos(System.nanoTime() - enqueuedAt));
+                long startedAt = System.nanoTime();
+                ExecutionResult result = engine.run(executionId, workflowId, def, traceId);
+                executionDuration.record(Duration.ofNanos(System.nanoTime() - startedAt));
+                recordFinish(result.status().name());
+                log.info("[traceId={}] 执行 {} 完成: {}", traceId, executionId, result.status());
+            } finally {
+                slots.release();
+            }
+        } catch (Exception e) {
+            // 引擎内部已收敛节点异常；走到这里的是定义非法/持久层故障，必须兜底收尾，禁止留 RUNNING 僵尸
+            log.error("[traceId={}] 执行 {} 异常终止", traceId, executionId, e);
+            recordFinish("ABORTED");
+            safeFinish(executionId);
+        }
+    }
+
+    /** 公平信号量的 tryAcquire(0)：已有排队者时不插队，且不阻塞请求线程。 */
+    private boolean tryAcquireNow() {
+        try {
+            return slots.tryAcquire(0, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void releaseUnusedSlot(boolean hasSlot) {
+        if (hasSlot) {
+            slots.release();
+        } else {
+            waiting.decrementAndGet();
+        }
+    }
+
+    private void recordRejected(String reason) {
+        Counter.builder("agentflow.execution.rejected").tag("reason", reason).register(registry).increment();
     }
 
     private void recordFinish(String status) {

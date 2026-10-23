@@ -68,6 +68,12 @@ agentflow:
     # 成品库根目录：所有产物读写都被约束在此目录内（JdbcContentStore.resolveInside）。
     # 相对路径按进程工作目录解析；容器/云主机部署务必 env 指向持久卷，否则重启即丢成品。
     library-dir: ${AGENTFLOW_LIBRARY_DIR:./data/library}
+  exec:
+    # 执行闸门（评审 P7-3 #10）：容量/排队/等待上限运行期可调，应急扩缩不必重建镜像。
+    # max-queued 是允许等待的条数：超过即 429，而不是无上限静默排队；0 表示只跑不排。
+    max-concurrent: ${AGENTFLOW_EXEC_MAX_CONCURRENT:16}
+    acquire-timeout: ${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}
+    max-queued: ${AGENTFLOW_EXEC_MAX_QUEUED:64}
 
 logging:
   pattern:

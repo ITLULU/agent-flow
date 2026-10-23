@@ -75,6 +75,9 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.nodes.image.base-url` | `https://dashscope.aliyuncs.com` | 仅测试/代理环境改；节点 `ratio`/`size` 决定出图尺寸 |
 | `agentflow.nodes.wechat.app-id` / `app-secret` | `${WECHAT_APPID:}/${WECHAT_SECRET:}` | env 注入；云端需将出网 IP 加进公众号 IP 白名单；单用户可用 `wechat.draft.credentialId` 走凭证库 |
 | `agentflow.content.library-dir` | `${AGENTFLOW_LIBRARY_DIR:./data/library}` | 成品库根目录，所有读写被约束在此目录内（`resolveInside` 防穿越）；容器/云主机必须 env 指向持久卷，否则重启丢成品。启动自检做写探针 |
+| `agentflow.exec.max-concurrent` | `${AGENTFLOW_EXEC_MAX_CONCURRENT:16}` | 单实例同时执行的工作流数（P7-3#10 外置）；按节点真实耗时压测后再调，改配置重启即生效，无需重建镜像 |
+| `agentflow.exec.max-queued` | `${AGENTFLOW_EXEC_MAX_QUEUED:64}` | 允许等待执行槽的条数；超过即同步 `429/A0429`（不创建执行记录），避免无上限静默积压。`0` = 只跑不排 |
+| `agentflow.exec.acquire-timeout` | `${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}` | 排队等槽上限；超时执行落 `FAILED` 并释放指标 `agentflow.execution.rejected{reason="acquire_timeout"}`，不留永远 `RUNNING` 的记录 |
 
 ## 3. 架构与关键决策
 
@@ -92,8 +95,9 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 
 > **当前形态口径**：本项目按**单作者/受信小团队自用**交付与验证。首轮专家评审给出对外多用户形态的
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
-> 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**（纪要 §7、台账 P7-1），
-> 但 🔶 5 项（密钥 fail-fast 时机 / 匿名限流桶 / TIMEOUT 后重复发布 / 抢注即接管 / 无备份）仍未动 ⇒ **决议不因本轮修复自动改变，对外仍 NO-GO**。
+> 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
+> 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
+> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、分页/敏感标记/密钥轮转（#13–#16）、微信真凭证外发未验。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -104,7 +108,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | 密钥 fail-fast 晚于端口绑定；prod 关鉴权只 log | 🔶 见评审 #5 | P7-2（0.5 人日） |
 | 匿名请求共享 uid=0 限流桶（登录全局 120/min） | 🔶 见评审 #6 | P7-2 |
 | 执行判 TIMEOUT 后节点仍继续跑并真实发布（重复草稿） | 🔶 见评审 #7 | P7-2（1 人日） |
-| 执行闸门 `Semaphore(16)` 硬编码、排队无超时 | ⚠️ 见评审 #10 | P7-3 |
+| ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
 | 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 | ⚠️ 单实例假设 | 十万档（评审 §5） |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
@@ -120,7 +124,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~Dockerfile / compose 中 server 服务~~ | ✅ P5 已交付（多阶段镜像 + 非 root + `read_only`/`cap_drop ALL`/`no-new-privileges` + `*_FILE` 秘密垫片）。compose 已并到 `SpringCloudAdmin/docker-compose/agent-flow`（唯一一套，my-custom-network），见第 5 节 | - |
 | nacos 传递依赖（spring-ai-alibaba 带入） | ✅ P7-3#12 收敛：已在 `spring-ai-alibaba-core` 上排除 `spring-alibaba-nacos-config`（健康指标曾把 `/actuator/health` 拉成 DOWN），启动日志 nacos/ERROR 为 0。**`nacos-client` 无法移除**：`DashScopeApi` 构造期调用其 `StringUtils`，排除即 `NoClassDefFoundError`；fat jar 仍含该 7.8MB（上游依赖，等上游修复） | 已收敛 |
 | 管理员只由 env 注入的 bootstrap 账号产生（`AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME/PASSWORD`，P7-2a） | 注册接口永不授予 admin；留空则系统无管理员，需先配置再重启 | ✅ 已收敛 |
-| CI 实际执行 | workflow 文件已入库，需绑定 GitHub 远端后生效 | 立即（push 后） |
+| ~~CI 实际执行~~ | ✅ 已生效：`459f44b` 的 [run 39880053665](https://github.com/ITLULU/agent-flow/actions/runs/39880053665) `completed success`（全模块 `mvn -B verify`） | - |
 | 本机内网穿透仅用于联调演示 | 10w 用户量级必须云服务器部署（4C8G 起） | 上线前 |
 
 ## 5. 生产部署（compose，实机已验）

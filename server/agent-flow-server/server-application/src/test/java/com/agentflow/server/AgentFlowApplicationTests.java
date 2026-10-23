@@ -2,6 +2,8 @@ package com.agentflow.server;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.agentflow.server.config.ExecProperties;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,6 +20,17 @@ class AgentFlowApplicationTests {
 
     @Autowired
     TestRestTemplate rest;
+
+    @Autowired
+    ExecProperties execProperties;
+
+    @Test
+    void execCapacityIsBoundFromConfig() {
+        // 闸门容量必须来自 yml/env（P7-3 #10）；绑定失败时这里会拿到构造默认值或上下文启动失败
+        assertThat(execProperties.maxConcurrent()).isEqualTo(16);
+        assertThat(execProperties.maxQueued()).isEqualTo(64);
+        assertThat(execProperties.acquireTimeout()).isEqualTo(Duration.ofMinutes(5));
+    }
 
     @Test
     void healthLivenessIsUp() {
