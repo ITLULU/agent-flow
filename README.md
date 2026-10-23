@@ -103,7 +103,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、微信真凭证外发未验。主密钥轮换（#16）与下游舱壁/熔断（#17）已于 P7-3 完成。
+> **对外仍 NO-GO** 的剩余理由：多实例全局配额（#11）、真异地副本缺对象存储凭证（#9 的定时/产物归档/告警已于 P7-3 接上，代码与挂点齐了，缺的是桶凭证）、微信真凭证外发未验。主密钥轮换（#16）与下游舱壁/熔断（#17）已于 P7-3 完成。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -213,11 +213,21 @@ docker compose exec agent-flow-db psql -U agentflow -d agentflow -tAc \
 备份与恢复演练（评审 P6 #9）：用 `scripts/backup-postgres.sh`，不要手敲 `pg_dump`——口令不落到任何文件，脚本只借 compose 进容器执行。
 
 ```bash
-bash scripts/backup-postgres.sh backup                 # pg_dump -Fc → <compose>/backups/agentflow-<时间戳>.dump（0600，保留最近 7 份）
+bash scripts/backup-postgres.sh backup                 # pg_dump -Fc + 产物库归档 → <compose>/backups/agentflow-<时间戳>.{dump,library.tgz}（0600，各保留最近 7 份）
 bash scripts/backup-postgres.sh verify <dump>          # 只验结构可读，不代表能恢复
 bash scripts/backup-postgres.sh drill                  # 恢复进临时库 agentflow_drill_*，逐表计数比对后自动 DROP
+bash scripts/backup-postgres.sh run-daily [--drill]    # 定时入口：backup → verify（--drill 追加恢复演练），失败必落告警
+bash scripts/backup-postgres.sh schedule 03:30         # macOS 登记 launchd 每日任务（Linux 会打印等价 crontab 行）
+bash scripts/backup-postgres.sh unschedule             # 撤销登记
 ```
 
-可覆盖：`--compose DIR`（compose 目录）、`--out DIR`（dump 目录）、`--keep N`、`--file <dump>`，以及环境变量 `SOURCE_DB`（默认 `agentflow`；演练时可指向 scratch 库）。`drill` 建/删临时库，任何失败路径（含 `pg_restore` 报错）都会清掉临时库，不在实例里留垃圾。口径提醒：**没做过恢复演练的备份等于没有备份**；本项目的自动化（cron 定时、异地副本、失败告警）仍未接，"备份存在"≠"每天有新备份"。
+可覆盖：`--compose DIR`（compose 目录）、`--out DIR`（dump 目录）、`--keep N`、`--file <dump>`，以及环境变量 `SOURCE_DB`（默认 `agentflow`；演练时可指向 scratch 库）、`LIBRARY_DIR`（产物库目录，默认 `<compose>/data/library`——artifact 指向的真实文件在磁盘上，只备 PG 会丢产物）。`drill` 建/删临时库，任何失败路径（含 `pg_restore` 报错）都会清掉临时库，不在实例里留垃圾。
+
+异地副本与告警（都是环境变量，不给就不假装做过）：
+- `BACKUP_OFFSITE_DIR=<目录>`：dump 与归档 `cp` 过去并 `cmp` 逐字节核对，适合挂载盘/NFS/第二台机器；
+- `BACKUP_OFFSITE_CMD=<命令>`：把两个文件路径追加给自定义上传器（`rclone copy` / `aws s3 cp` / `gsutil cp`）。**对象存储凭证只走云 CLI 自身配置或环境变量，绝不写进本仓库**；
+- `BACKUP_ALERT_WEBHOOK=<url>` + `BACKUP_ALERT_LOG`（默认 `<out>/backup-alerts.log`）：任一阶段失败（含 `pg_dump` 自身失败、异地副本字节不一致、上传命令非 0）落一条 `FATAL` 行并 POST 一条 JSON，`launchctl`/`cron` 里没人看 stdout，靠这个留痕。
+
+口径提醒：**没做过恢复演练的备份等于没有备份**；登记了定时不等于备份成功——每次接手先看 `backups/logs/backup.out` 与 `backup-alerts.log`。
 
 已知排查点：本机 `docker` CLI 在 `~/.docker/bin`（不在默认 PATH）；宿主 18080 已被 RocketMQ dashboard 占用，临时探活换端口；Docker Desktop 的 socket 偶发 `permission denied`，重试即可（非应用问题）。nacos 启动噪声已在 P7-3#12 消除（见第 4 节）。
