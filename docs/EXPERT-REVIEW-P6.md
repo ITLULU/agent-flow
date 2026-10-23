@@ -116,7 +116,7 @@
 3. **密钥管理**：全部 env / `*_FILE` secrets，yml 无明文 ✅；日志只打"present/absent"布尔 ✅（StartupSelfCheck.java:45-50）；🛑 候选但记 🔶：`DEV_FALLBACK_SECRET = "agentflow-dev-jwt-secret-0123456789abcdef"`（[AuthConfig.java:22](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/java/com/agentflow/server/security/AuthConfig.java#L22)）是**写进仓库的可用签名密钥**——`enabled=true` 时靠 StartupSelfCheck 兜住，但该兜底是 `ApplicationRunner`，端口已绑定、已可服务（见下）；本地 `enabled=false` 时任何知道该串的人可伪造 token 直接成为 admin。
 4. ✅（P7-2b 已修，10-22 21:30）启动时序：原 fail-fast 位于 `implements ApplicationRunner` ⇒ 抛错时机在 **Tomcat 已 bind 端口、context 已就绪之后**，存在"已对外可服务 2–3 秒后才崩"的窗口；prod+`enabled=false` 只 `log.error`。**现状**：基线校验移到 `StartupSelfCheck` 的 `@PostConstruct enforceSecurityBaseline()`（[StartupSelfCheck.java:61](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/java/com/agentflow/server/startup/StartupSelfCheck.java#L61)）——eager 单例初始化在 `finishBeanFactoryInitialization` 阶段，早于 `finishRefresh()` 的 `WebServerStartStopLifecycle` 绑定端口；`run()` 只保留信息性自检。**反向验证**（不是"正常路径通过"）：`P7FailFastTimingTests` 以 `enabled=true` + 空密钥起一个 RANDOM_PORT 实例，断言①启动抛错且异常链含 `AGENTFLOW_JWT_SECRET`，②失败后 `new Socket().connect(loopback:port)` **连接被拒** ⇒ 端口从未对外可服务。1/1 绿。（prod+`enabled=false` 仍是 `log.error` 而非拒启，属刻意保留的"本地可跑"口子，见 §4 #5 处置。）
 5. ✅（P7-2d 已修，10-22 22:07）限流的可用性副作用：原 [RateLimitFilter.java:59](file:///Users/a/source/agent-flow/server/agent-flow-server/server-application/src/main/java/com/agentflow/server/security/RateLimitFilter.java#L59) 以 `uid+":"+minute` 为键，匿名一律 uid=0 ⇒ 全部未登录流量共享 120 次/分钟/实例。**现状与口径修正**：`AuthFilter`（+10）先于本过滤器（+20），匿名访问业务 API 早已 401，因此真实挤桶者是"服务通道 + `/api/auth/**` 匿名流量"。桶键改为 `u:{uid}` / `svc` / `ip:{client}:auth` 三种，auth 用独立阈值 `rate-limit-auth-per-minute`（默认 30/IP），`trust-forwarded-for` 默认 false（没有会覆盖该头的可信反代时开它就是让攻击者自选桶键）。反向验证：同一 IP 第 3 次登录 429、换 IP 立刻回到 401；auth 桶打满后服务通道仍能用满自己的 4 次额度、第 5 次才 429。多实例仍靠网关/Redis 计数（容量阶段，台账已记）。
-6. **供应链**：Spring Boot 3.5.6 + Java 21（ majors 不落后 ✅）；**spring-ai-alibaba 传递带入 nacos-client**，运行期根文件系统 `read_only` 导致启动刷 ERROR（昨天已用 `-Dnacos.logging.default.config.enabled=false` 从 18 降到 1 条残留 `AliyunConfigFilter - region is not set up yet`）⇒ 属"引入了不使用且有攻击面的组件"，建议在 dependencyManagement 显式排除（P6 台账项）⚠️。
+6. **供应链**：Spring Boot 3.5.6 + Java 21（ majors 不落后 ✅）；**spring-ai-alibaba 传递带入 nacos-client**，运行期根文件系统 `read_only` 导致启动刷 ERROR（昨天已用 `-Dnacos.logging.default.config.enabled=false` 从 18 降到 1 条残留 `AliyunConfigFilter - region is not set up yet`）⇒ 属"引入了不使用且有攻击面的组件"，建议在 dependencyManagement 显式排除（P6 台账项）⚠️。**✅ P7-3#12 收敛（10-23）**：已排除 `spring-alibaba-nacos-config`（健康指标曾把 `/actuator/health` 聚合拉成 DOWN，启动噪声归零）；`nacos-client` 本身不能排——`DashScopeApi` 构造期调用其 `StringUtils`，排除即 `NoClassDefFoundError`（实测），故保留该 jar 作为上游运行期依赖，攻击面缩小到"仅工具类可用"。
 
 ## 3. 交叉质询裁决记录
 
@@ -148,7 +148,7 @@
 | 12 | ⚠️ | 一致性 | 成品库本地文件 + 列表只读本机；DB 写成功/文件失败无补偿 | application.yml:57；LocalArchiveNodeExecutor | 研发 | 对象存储 + 补偿入口（P7） |
 | 13 | ⚠️ | 访问模式 | `listByOwner` 等无分页；node_runs 逐行写 | CredentialRepository.java:40-46 | DBA | 游标分页 + 批量 flush |
 | 14 | ⚠️ | 安全标记 | 路由无 SENSITIVE 标记（bootstrap §5 未兑现） | 全仓 grep 0 命中 | 研发 | 端点元数据 + 鉴权收口清单；0.5 人日 |
-| 15 | ⚠️ | 供应链 | 传递依赖 nacos-client 未使用仍有攻击面且刷错误日志 | Dockerfile JAVA_OPTS 注释；残留 AliyunConfigFilter ERROR | 运维 | 显式 exclusion + 依赖树回归；0.5 人日（勿用 autoconfigure.exclude，已实测致启动失败） |
+| 15 | ✅ | 供应链 | 传递依赖 nacos-client 未使用仍有攻击面且刷错误日志 | 已排除 `spring-alibaba-nacos-config`；`nacos-client` 因 `DashScopeApi` 运行期使用而保留 | 运维 | 已完成（P7-3#12）：`DependencyIsolationTest` + 聚合健康 UP 断言 + 容器复验；启动日志 nacos/ERROR 为 0。彻底移除 nacos-client 需上游修复或 shim，挂后续 |
 | 16 | ⚠️ | 密钥治理 | 主密钥无 kid/轮换流程 | AesGcmCipher 使用点；AuthConfig.java:40-52 | 安全 | 双读单写轮换方案 |
 | 17 | ⚠️ | 韧性 | 下游无熔断/舱壁，一慢即占满 16 槽 | ExecutionManager + 各节点共用池 | 研发 | 按依赖类型分舱壁；P7 |
 | 18 | ✅ | 配置治理/异常边界/超时降级/Flyway/优雅停机/CAS 认领/traceId/CI+189 测试/参数化 SQL/路径穿越/凭证加密 env 口径 | 见 §1.5 与 §2 各条证据 | — | — | 免修 |
@@ -175,7 +175,7 @@
 ## 7. P7-1 修复回写（2026-10-22，四条 🛑 全部落地）
 
 修复范围＝§4 的 #1/#2/#3/#4 四条 🛑；#5–#9 五条 🔶 本轮未动，仍按 P7-2/P7-3 排期。**决议不变**：对外多用户仍 NO-GO，
-**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10），但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#10–#16 容量与密钥轮转未做、P7-2c 指标抓取身份未拍板，以及真实 key 的创作链路 E2E 尚未跑过；改判需重开一次评审。
+**注**：#7/#8 已在 P7-2 修掉（见 §4 与 PROGRESS 10-22 22:40 / 21:10）；P7-2c 指标抓取身份、P4 前端画布、真实 key 的文案+生图+本地发布 E2E、P7-3#12 nacos config 排除均已完成（10-23）。但**决议不变、仍对外 NO-GO**——剩余理由是 #9 的自动定时与异地副本未接、#10/#11/#13–#16 的容量（多实例/全局配额）与密钥轮转未做，以及微信真凭证外发未验；改判需重开一次评审。
 
 | # | 落点 | 关键取舍 | 验证 |
 |---|---|---|---|

@@ -25,11 +25,8 @@ COPY --chown=agentflow:agentflow deploy/docker-entrypoint.sh /app/docker-entrypo
 RUN chmod +x /app/docker-entrypoint.sh
 
 USER agentflow
-# spring-ai-alibaba 传递带入 nacos-client，它启动时会往 ${user.home}/logs/nacos 写自己的 logback 配置：
-# read_only 根文件系统下先刷 FileNotFoundException 栈，改到可写目录后又刷 logback appender 碰撞 ERROR。
-# 本项目不用 Nacos 配置中心，直接关掉它的默认日志装配（其余 nacos 类仍按需可用）。
 ENV AGENTFLOW_LIBRARY_DIR=/app/data/library \
-    JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8 -Dnacos.logging.default.config.enabled=false"
+    JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8"
 EXPOSE 8080
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

@@ -63,6 +63,26 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("workflowId", id));
     }
 
+    /** 自己的清单；admin 看全部。只回摘要，画布按需再拉单条完整 DSL。 */
+    @GetMapping("/workflows")
+    public ApiResponse<Map<String, Object>> list() {
+        var principal = PrincipalContext.get();
+        return ApiResponse.ok(Map.of("items", catalog.list(principal.isAdmin() ? null : principal.uid())));
+    }
+
+    /** 覆盖保存（画布"保存"按钮）：归属校验 + 保存即校验，版本号由仓库递增。 */
+    @PutMapping("/workflows/{id}")
+    public ApiResponse<Map<String, Object>> update(@PathVariable long id, @RequestBody String rawJson) {
+        requireVisible(id);
+        WorkflowDefinition def = parse(rawJson);
+        DagValidator.ValidationResult vr = DagValidator.validate(def, registry.knownTypes());
+        if (!vr.valid()) {
+            throw new ApiException(ErrorCode.WORKFLOW_INVALID, String.join("; ", vr.errors()));
+        }
+        catalog.update(id, def);
+        return ApiResponse.ok(Map.of("workflowId", id));
+    }
+
     @GetMapping("/workflows/{id}")
     public ApiResponse<WorkflowDefinition> get(@PathVariable long id) {
         return ApiResponse.ok(catalog.parseDsl(requireVisible(id)));

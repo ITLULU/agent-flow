@@ -50,14 +50,15 @@ agentflow:
     # 管理员只由运维显式注入（P7-2a：注册接口永不授予 admin，避免"谁先注册谁接管"）
     bootstrap-admin-username: ${AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME:}
     bootstrap-admin-password: ${AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD:}   # 生产建议走 *_FILE 秘密注入
+    metrics-token: ${AGENTFLOW_METRICS_TOKEN:}   # Prometheus 抓取专用令牌：仅对 /actuator/prometheus 生效，空=该端点保持 401
   nodes:
     # 凭证全部 env 注入（默认空串）：空凭证不阻塞启动，节点照常注册；执行时报不可重试的配置错误
     # 真实 key 需用户自行申请，见 docs/TOOLS-CHECKLIST.md
     llm:
-      api-key: ${BAILIAN_API_KEY:}
+      api-key: ${AI_API_KEY:${BAILIAN_API_KEY:}}   # AI_API_KEY 为统一入口；BAILIAN_API_KEY 保留兼容
       default-model: qwen-plus        # 节点可用 params.model 覆盖（多模型可配置口径）
     image:
-      api-key: ${BAILIAN_API_KEY:}    # 万相与 LLM 同源（DashScope）
+      api-key: ${AI_API_KEY:${BAILIAN_API_KEY:}}   # 万相与 LLM 同源（DashScope）
       base-url: https://dashscope.aliyuncs.com
     wechat:
       app-id: ${WECHAT_APPID:}

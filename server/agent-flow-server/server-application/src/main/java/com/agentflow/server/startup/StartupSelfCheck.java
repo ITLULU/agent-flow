@@ -45,6 +45,7 @@ public class StartupSelfCheck implements ApplicationRunner {
         log.info("security.enabled: {}", securityProps.enabled());
         log.info("AGENTFLOW_MASTER_KEY present : {}", !securityProps.masterKey().isBlank());
         log.info("AGENTFLOW_API_TOKEN present  : {}", !securityProps.apiToken().isBlank());
+        log.info("AGENTFLOW_METRICS_TOKEN present: {}", !securityProps.metricsToken().isBlank());
         log.info("jwt-secret present           : {}", !securityProps.jwtSecret().isBlank());
         log.info("rate-limit per-minute        : {}", securityProps.rateLimitPerMinute());
         log.info("rate-limit auth per-ip       : {} (trust-forwarded-for={})",

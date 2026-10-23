@@ -10,6 +10,8 @@ public record Principal(long uid, String username, String role) {
     public static final String ROLE_ADMIN = "admin";
     public static final String ROLE_OPS = "ops";
     public static final String ROLE_ANONYMOUS = "anonymous";
+    /** 抓取专用主体：只用于 /actuator/prometheus，不具备任何业务资源访问能力。 */
+    public static final String ROLE_METRICS = "metrics";
 
     /** 特权只看角色，不看 uid：uid=0 是服务通道/匿名的归属键，把它当管理员等于"一把静态 token 开全站"（评审 P6 #2）。 */
     public boolean isAdmin() {

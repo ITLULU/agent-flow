@@ -27,6 +27,14 @@ class AgentFlowApplicationTests {
     }
 
     @Test
+    void healthAggregateIsUp() {
+        // 聚合一 DOWN 会让监控把整个实例判死，即便 readiness/liveness 都是 UP（nacos 健康指标曾造成这种分裂）
+        ResponseEntity<String> resp = rest.getForEntity("/actuator/health", String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("\"status\":\"UP\"");
+    }
+
+    @Test
     void pingReturnsStructuredBodyAndTraceIdHeader() {
         ResponseEntity<String> resp = rest.getForEntity("/api/ping", String.class);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);

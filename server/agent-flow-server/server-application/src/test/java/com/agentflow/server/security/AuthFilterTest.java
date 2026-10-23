@@ -24,8 +24,12 @@ class AuthFilterTest {
     private final JwtCodec codec = new JwtCodec(SECRET, new ObjectMapper(), Duration.ofHours(2));
 
     private SecurityProperties props(boolean enabled) {
+        return props(enabled, "metrics-token-1234567890");
+    }
+
+    private SecurityProperties props(boolean enabled, String metricsToken) {
         return new SecurityProperties(enabled, "svc-token", "filter-test-secret-at-least-32-chars!!",
-                Duration.ofHours(2), 120, 30, false, "", "", "");
+                Duration.ofHours(2), 120, 30, false, "", "", "", metricsToken);
     }
 
     private MockHttpServletResponse run(AuthFilter filter, String uri, String authHeader, String svcHeader,
@@ -116,6 +120,64 @@ class AuthFilterTest {
         assertThat(bad.getStatus()).isEqualTo(401);
         MockHttpServletResponse wrongSvc = run(filter, "/api/workflows/1", null, "wrong-token", null);
         assertThat(wrongSvc.getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void metricsTokenUnlocksOnlyPrometheus() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
+        AtomicReference<Principal> seen = new AtomicReference<>();
+        assertThat(run(filter, "/actuator/prometheus", "Bearer metrics-token-1234567890", null, seen).getStatus())
+                .isEqualTo(200);
+        assertThat(seen.get().role()).isEqualTo(Principal.ROLE_METRICS);
+        assertThat(seen.get().isAdmin()).isFalse();
+        // 抓取器常用自定义头（或 Authorization），两种入口都要能用，但不能拿同一把 token 调业务接口
+        assertThat(run(filter, "/actuator/prometheus", null, null, null).getStatus()).isEqualTo(401);
+        assertThat(run(filter, "/actuator/prometheus", "Bearer wrong-metrics-token", null, null).getStatus())
+                .isEqualTo(401);
+        assertThat(run(filter, "/api/workflows/1", "Bearer metrics-token-1234567890", null, null).getStatus())
+                .isEqualTo(401);
+    }
+
+    @Test
+    void metricsTokenCanComeFromDedicatedHeader() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        req.addHeader("X-Metrics-Token", "metrics-token-1234567890");
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        filter.doFilter(req, resp, new MockFilterChain());
+        assertThat(resp.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void prometheusStaysLockedWhenNoMetricsTokenConfigured() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true, ""), codec, new ObjectMapper());
+        assertThat(run(filter, "/actuator/prometheus", "Bearer metrics-token-1234567890", null, null).getStatus())
+                .isEqualTo(401);
+        assertThat(run(filter, "/actuator/prometheus", null, null, null).getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void healthPrefixCannotBeUsedToReachPrometheus() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
+        assertThat(run(filter, "/actuator/health", null, null, null).getStatus()).isEqualTo(200);
+        assertThat(run(filter, "/actuator/health/liveness", null, null, null).getStatus()).isEqualTo(200);
+        // 原始 URI 前缀曾把 /actuator/health/../prometheus 当健康探针放行；归一化后必须回到鉴权路径
+        assertThat(run(filter, "/actuator/health/../prometheus", null, null, null).getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void staticFrontendIsPublicButOnlyForReads() throws Exception {
+        AuthFilter filter = new AuthFilter(props(true), codec, new ObjectMapper());
+        assertThat(run(filter, "/", null, null, null).getStatus()).isEqualTo(200);
+        assertThat(run(filter, "/index.html", null, null, null).getStatus()).isEqualTo(200);
+        assertThat(run(filter, "/assets/index-abc123.js", null, null, null).getStatus()).isEqualTo(200);
+        // 静态白名单只对 GET/HEAD 生效，不能拿来当写接口的旁路
+        MockHttpServletRequest post = new MockHttpServletRequest("POST", "/assets/x.js");
+        MockHttpServletResponse postResp = new MockHttpServletResponse();
+        filter.doFilter(post, postResp, new MockFilterChain());
+        assertThat(postResp.getStatus()).isEqualTo(401);
+        // 静态目录穿越归一化后落到业务路径，必须回到鉴权
+        assertThat(run(filter, "/assets/../api/workflows/1", null, null, null).getStatus()).isEqualTo(401);
     }
 
     @Test

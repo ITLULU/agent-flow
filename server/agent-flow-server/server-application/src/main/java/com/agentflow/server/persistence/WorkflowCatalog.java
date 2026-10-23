@@ -6,6 +6,7 @@ import com.agentflow.engine.model.WorkflowDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.List;
 import java.util.OptionalLong;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -15,6 +16,9 @@ import org.springframework.stereotype.Repository;
 public class WorkflowCatalog {
 
     public record StoredWorkflow(long id, String name, String dsl, long ownerId) {
+    }
+
+    public record WorkflowSummary(long id, String name, int version, String createdAt, int nodeCount) {
     }
 
     private final JdbcTemplate jdbc;
@@ -57,6 +61,39 @@ public class WorkflowCatalog {
                         rs.getString("dsl"), rs.getLong("owner_id")),
                 id).stream().findFirst()
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "workflow " + id));
+    }
+
+    /** ownerId=null 表示 admin 视角（全部）；列表只回摘要，DSL 原文留在库里。 */
+    public List<WorkflowSummary> list(Long ownerId) {
+        String sql = "SELECT id, name, version, CAST(created_at AS VARCHAR) AS created_at, dsl FROM workflow"
+                + (ownerId == null ? "" : " WHERE owner_id = ?") + " ORDER BY id DESC";
+        Object[] args = ownerId == null ? new Object[0] : new Object[]{ownerId};
+        return jdbc.query(sql, (rs, rowNum) -> new WorkflowSummary(
+                rs.getLong("id"), rs.getString("name"), rs.getInt("version"),
+                rs.getString("created_at"), countNodes(rs.getString("dsl"))), args);
+    }
+
+    private int countNodes(String dsl) {
+        try {
+            return mapper.readTree(dsl).path("nodes").size();
+        } catch (Exception e) {
+            return 0; // 脏 DSL 不该让整个列表 500；打开单条时自有解析错误兜底
+        }
+    }
+
+    /** 更新定义并递增版本号；调用方已做归属校验。 */
+    public void update(long id, WorkflowDefinition def) {
+        String dsl;
+        try {
+            dsl = mapper.writeValueAsString(def);
+        } catch (Exception e) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "DSL 序列化失败: " + e.getClass().getSimpleName());
+        }
+        int rows = jdbc.update("UPDATE workflow SET name = ?, dsl = ?, version = version + 1 WHERE id = ?",
+                def.name() == null ? "unnamed" : def.name(), dsl, id);
+        if (rows == 0) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "workflow " + id);
+        }
     }
 
     public WorkflowDefinition parseDefinition(long id) {

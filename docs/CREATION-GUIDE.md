@@ -99,8 +99,8 @@ curl -s -o article.md "$BASE_URL/api/artifacts/3/file?path=article.md" -H "Autho
 
 | 需要的配置 | 键 | 缺失时行为 |
 |---|---|---|
-| 文案模型 | `agentflow.nodes.llm.api-key` ← `BAILIAN_API_KEY` | 节点在位，执行报 A0400「LLM 网关未配置」，不阻塞启动 |
-| 生图模型 | `agentflow.nodes.image.api-key` ← `BAILIAN_API_KEY`（万相同账号） | 无 key 时 `image.cover` 报不可重试配置错；生图失败本身**降级**为无图继续发布 |
+| 文案模型 | `agentflow.nodes.llm.api-key` ← `AI_API_KEY`（`BAILIAN_API_KEY` 兼容） | 节点在位，执行报 A0400「LLM 网关未配置」，不阻塞启动 |
+| 生图模型 | `agentflow.nodes.image.api-key` ← `AI_API_KEY`（万相同账号） | 无 key 时 `image.cover` 报不可重试配置错；生图失败本身**降级**为无图继续发布 |
 | 成品库目录 | `agentflow.content.library-dir`（默认 `./data/library`） | 启动自检做写探针，不可写直接打错误日志预告 `publish.local`/`xhs.draft` 会失败 |
 | 微信凭证 | 环境变量 `WECHAT_APPID/WECHAT_SECRET`，或 `wechat.draft.credentialId` 指向凭证库 | 库内 AES-GCM 加密存储，API 永不回显明文；未配主密钥时凭证接口报 A0400，其它功能不受影响。**`credentialId` 只认"这条工作流的归属者"**（P7-1）：别人的凭证 id 填进自己的 DSL 会报"凭证不存在或无法解密"且不会出网，这是刻意的——不区分"不存在"与"无权"，免得拿它探测他人凭证 |
 
@@ -111,4 +111,4 @@ curl -s -o article.md "$BASE_URL/api/artifacts/3/file?path=article.md" -H "Autho
 - `xhs.draft` 无官方公开草稿 API：默认只产出**小红书图文包**（标题/正文/话题/图片清单）落本地成品库；配 `endpoint` 才外发，失败记 warnings 不判 FAILED。
 - 热榜源结构变更最易表现为「取到 JSON 但零条目」，节点会显式记 `failedSources`；`endpointOverride` 可换源不改码。
 - 并行分支未启用（v1 拓扑序串行），配图与主图当前串行产出。
-- 真 key 联调由用户执行：注入 `BAILIAN_API_KEY`（+ 微信 appid/secret）后跑上面第 3 节命令即可，桩测已验证过完整链路。
+- 真 key 联调：注入 `AI_API_KEY`（+ 微信 appid/secret）后跑上面第 3 节命令即可；文案 + 生图 + 本地发布三段已用真实 key 实测 SUCCESS（微信草稿仍需真 appid/secret）。

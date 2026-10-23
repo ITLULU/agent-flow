@@ -33,6 +33,21 @@
     <dependency>
       <groupId>com.alibaba.cloud.ai</groupId>
       <artifactId>spring-ai-alibaba-core</artifactId>
+      <exclusions>
+        <!-- 本项目不接 Nacos 配置中心。这个传递依赖会注册健康指标，在无 Nacos 时把
+             /actuator/health 整体拉成 DOWN；排除后仅保留 DashScopeApi 真正用到的 nacos-client。 -->
+        <exclusion>
+          <groupId>com.alibaba.cloud</groupId>
+          <artifactId>spring-alibaba-nacos-config</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- DashScopeApi 的构造与请求拼装调用 com.alibaba.nacos.common.utils.StringUtils（在 nacos-client 内），
+         所以这个 jar 不能一起排掉；版本与被排除的 config 客户端保持一致。 -->
+    <dependency>
+      <groupId>com.alibaba.nacos</groupId>
+      <artifactId>nacos-client</artifactId>
+      <version>2.4.2</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
