@@ -96,6 +96,39 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.resilience.dependencies.<name>.open-duration` | 30s（wechat/xhs 60s） | 熔断冷却时长；到期后放行 1 个半开探测，成功闭合、失败重新 open。open 期间节点直接 `C0004`，引擎判不可重试 |
 | `agentflow.engine.max-parallel-nodes` | `${AGENTFLOW_ENGINE_MAX_PARALLEL_NODES:8}` | 同一条执行内"同一层（互不依赖）节点"的并发上限（P7-3#18 并行支路）。调大不会让单节点变快，只会让依赖抖动时更容易打穿舱壁；与 `exec.max-concurrent` 相乘才是进程内节点任务的上界。`<1` 启动即失败 |
 
+### 走云桶需要交接的六项（自测阶段不需要，本地 MinIO 已跑通同一条代码路径）
+
+远端副本这一面**已经在本机以生产形态 compose + 真 MinIO 打开并验过**（`.env` 里
+`AGENTFLOW_STORAGE_ENABLED=true`、endpoint 指 `http://minio:9000`）。换云桶只是换下面六个值，
+代码路径、编码口径、失败语义完全同一套——所以下面任何一项都不需要"先写代码"。
+
+| # | 要提供的东西 | 放进哪里 | 说明 |
+|---|---|---|---|
+| 1 | 端点（含 scheme） | `.env` 的 `AGENTFLOW_STORAGE_ENDPOINT` | 例：`https://oss-cn-beijing.aliyuncs.com`；必须是本机能直连的地址。走 path-style，阿里 OSS 需确认桶允许 path-style |
+| 2 | 桶名 | `.env` 的 `AGENTFLOW_STORAGE_BUCKET` | 桶**建议已存在**；不存在时启动会尝试建桶，建桶失败不致命（记 `bucket_unavailable` 指标并继续提供服务），但同步会一直失败 |
+| 3 | AccessKey | `secrets/storage_access_key`（600，gitignore 内） | 只走文件。**不要贴进对话、不要写进 yml/compose** |
+| 4 | SecretKey | `secrets/storage_secret_key`（600，gitignore 内） | 同上 |
+| 5 | region | `.env` 的 `AGENTFLOW_STORAGE_REGION` | 默认 `us-east-1`；MinIO 可留默认，云厂商按控制台标注填（SigV4 参与签名，填错是 403 而不是"能连通"） |
+| 6 | key-prefix（可选） | `.env` 的 `AGENTFLOW_STORAGE_KEY_PREFIX` | 默认 `artifacts`；同桶多环境共用时才需要改 |
+
+权限要求：该 AK 需要对桶的 `PutObject`/`GetObject`/`HeadObject`/`DeleteObject`，以及（若桶可能不存在）`CreateBucket`。
+只需要"备份上去、出事能取回"的话，可以给到最小集：前四项 + region，key-prefix 留默认。
+
+交接方式（二选一，都避免密钥进对话）：
+- 直接把两个 secret 文件写好，再 `docker compose up -d agent-flow-server`；
+- 或者只给 AK/SK 的**名称/位置**（如"在密码管理器里叫 xxx"），由本机侧落文件。
+
+打开后怎么确认它真的在工作（两条命令，不必读代码）：
+
+```bash
+# ① 启动装配：有这行说明客户端与后台扫描都建起来了
+docker -H unix://$HOME/.docker/run/docker.sock logs agent-flow-server | grep 成品对象存储就绪
+# ② 反向验证：故意让备份失败，看状态是否落到 failed 且带上原因（而不是静默成功）
+```
+
+注意 fail-fast 的边界：`enabled=true` 而 1/2/3/4 任一为空 ⇒ **进程启动即退出**，这是设计而非故障；
+但"端点连不通"不会让进程退出（只记 ERROR 与 `bucket_unavailable` 指标），因为备份面挂掉不该拖垮创作主链路。
+
 ## 3. 架构与关键决策
 
 - **模块单向依赖**：`server-application → node-adapters → workflow-engine → platform-common`；父 pom 只做版本治理。详见 `docs/IMPLEMENTATION-PLAN.md`。
