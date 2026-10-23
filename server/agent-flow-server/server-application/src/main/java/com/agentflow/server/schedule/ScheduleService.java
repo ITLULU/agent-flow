@@ -81,10 +81,10 @@ public class ScheduleService {
     /** 扫描到期并领发；返回本轮实际触发数（测试直接调用，免等 @Scheduled 周期）。 */
     public int fireDue() {
         List<DueRow> due = jdbc.query(
-                "SELECT id, schedule_cron, next_fire_at FROM workflow "
+                "SELECT id, owner_id, schedule_cron, next_fire_at FROM workflow "
                         + "WHERE schedule_enabled = TRUE AND next_fire_at IS NOT NULL "
                         + "AND next_fire_at <= CURRENT_TIMESTAMP ORDER BY next_fire_at LIMIT " + MAX_PER_TICK,
-                (rs, i) -> new DueRow(rs.getLong("id"), rs.getString("schedule_cron"),
+                (rs, i) -> new DueRow(rs.getLong("id"), rs.getLong("owner_id"), rs.getString("schedule_cron"),
                         rs.getTimestamp("next_fire_at")));
         int fired = 0;
         for (DueRow row : due) {
@@ -110,7 +110,7 @@ public class ScheduleService {
             }
             try {
                 WorkflowDefinition def = catalog.parseDefinition(row.id());
-                manager.submit(row.id(), def, TraceIdUtils.generate());
+                manager.submit(row.id(), row.ownerId(), def, TraceIdUtils.generate());
                 fired++;
                 log.info("cron 触发 workflow={} traceId={}", row.id(), TraceIdUtils.current());
             } catch (Exception e) {
@@ -128,6 +128,6 @@ public class ScheduleService {
         }
     }
 
-    private record DueRow(long id, String cron, Timestamp nextFireAt) {
+    private record DueRow(long id, long ownerId, String cron, Timestamp nextFireAt) {
     }
 }

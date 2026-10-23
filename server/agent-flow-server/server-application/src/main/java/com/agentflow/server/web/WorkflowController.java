@@ -114,9 +114,12 @@ public class WorkflowController {
     @EndpointSensitivity(Sensitivity.USER)
     @PostMapping("/workflows/{id}/executions")
     public ApiResponse<Map<String, Object>> trigger(@PathVariable long id) {
-        WorkflowDefinition def = catalog.parseDsl(requireVisible(id));
+        StoredWorkflow stored = requireVisible(id);
+        WorkflowDefinition def = catalog.parseDsl(stored);
         String traceId = TraceIdUtils.current();
-        long executionId = manager.submit(id, def, traceId);
+        // 归属人随提交一起传下去：跨实例配额的单用户上限以 workflow.owner_id 为准，
+        // 不看调用方会话——cron 触发的执行没有"当前登录者"。
+        long executionId = manager.submit(id, stored.ownerId(), def, traceId);
         return ApiResponse.ok(Map.of("executionId", executionId, "traceId", traceId == null ? "" : traceId));
     }
 

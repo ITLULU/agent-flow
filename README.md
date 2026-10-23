@@ -67,7 +67,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.schedule.tick-ms` | `15000` | cron 扫描节拍；测试/多实例调大避免抢发 |
 | `spring.datasource.url`（默认 profile） | `jdbc:h2:file:./data/agentflow;MODE=PostgreSQL;...` | 本地不改；删 `data/*.mv.db` 即重建库 |
 | `spring.datasource.*`（prod profile） | `${DB_URL}/${DB_USER}/${DB_PASSWORD}` | 云服务器 env 注入 PG16，禁止写死 |
-| `spring.datasource.hikari.maximum-pool-size`（prod） | `20` | 多实例部署时按总连接÷PG max_connections 重摊 |
+| `spring.datasource.hikari.maximum-pool-size`（prod） | `20` | 多实例部署时按总连接÷PG max_connections 重摊。硬约束式：**实例数 × pool-size ≤ `max_connections` × 0.8**（PG 默认 100 ⇒ 2 实例×20 有余量，5 实例×20 就打满，第 6 个实例连接排队）。配额（#11）管的是同时跑几条执行，管不了连接池总量；要突破这个天花板要么调 PG `max_connections`，要么上 PgBouncer（本机未部署，属十万档） |
 | `spring.flyway.enabled` | `true` | 不要改：schema 只允许迁移文件演进 |
 | `management.endpoint.health.probes.enabled` | `true` | 不要改：liveness/readiness 分离是 compose 健康检查依赖 |
 | `AGENTFLOW_MASTER_KEY`（环境变量） | 未设置 | 已在 P3 接入（yml 映射到 `agentflow.security.master-key`）；生产上线前必须注入 base64(32B) 主密钥 |
@@ -85,6 +85,11 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.exec.max-concurrent` | `${AGENTFLOW_EXEC_MAX_CONCURRENT:16}` | 单实例同时执行的工作流数（P7-3#10 外置）；按节点真实耗时压测后再调，改配置重启即生效，无需重建镜像 |
 | `agentflow.exec.max-queued` | `${AGENTFLOW_EXEC_MAX_QUEUED:64}` | 允许等待执行槽的条数；超过即同步 `429/A0429`（不创建执行记录），避免无上限静默积压。`0` = 只跑不排 |
 | `agentflow.exec.acquire-timeout` | `${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}` | 排队等槽上限；超时执行落 `FAILED` 并释放指标 `agentflow.execution.rejected{reason="acquire_timeout"}`，不留永远 `RUNNING` 的记录 |
+| `agentflow.exec.global-quota.enabled` | `${AGENTFLOW_EXEC_GLOBAL_QUOTA_ENABLED:false}` | **跨实例全局执行配额（P7-3#11）**。关闭时本地 `max-concurrent` 就是全局上限（单实例形态，零额外依赖）；开启后"谁在跑"记在共享库 `execution_lease`，N 个实例看同一本账。**fail-closed**：配额表缺失（V7 未迁移）时执行直接失败，不会静默退化成各数各的 |
+| `agentflow.exec.global-quota.max-concurrent` | `${AGENTFLOW_EXEC_GLOBAL_QUOTA_MAX_CONCURRENT:}`（启用时必填） | **全集群**同时在跑的执行数上限，不是每实例上限。启用时留空 / `<1` / 与单用户上限矛盾 ⇒ 启动即失败 |
+| `agentflow.exec.global-quota.per-user-max-concurrent` | `${AGENTFLOW_EXEC_GLOBAL_QUOTA_PER_USER_MAX_CONCURRENT:0}` | 单个归属人（`workflow.owner_id`）在集群里最多同时跑几条；`0` = 只受全局上限约束。cron 触发的执行同样算在属主头上 |
+| `agentflow.exec.global-quota.lease-ttl` / `.renew-interval` | `10m` / `30s` | 租约 TTL 防实例崩溃不还名额（到期由下一次预留顺带回收），续租节拍防"活着的长执行被当成崩溃残留"。`renew-interval` 必须落在 `(0, lease-ttl)`，否则启动失败——那正是上限被静默突破的配置 |
+| `agentflow.exec.global-quota.reserve-retry-interval` | `1s` | 拿到本地槽后等集群名额的重试节拍；最长等待复用 `acquire-timeout`，等不到落 `FAILED` + `rejected{reason="global_quota_timeout"}` |
 | `agentflow.resilience.enabled` | `${AGENTFLOW_RESILIENCE_ENABLED:true}` | **下游依赖舱壁/熔断总开关（P7-3#17）**；关闭后节点直连（仅限排障，生产保持开启） |
 | `agentflow.resilience.dependencies.<name>.max-concurrent` | llm 8 / image 4 / wechat 4 / xhs 4 / web 8 | 每个依赖独立的进程内并发上限；满舱壁立即 `C0004`（不排队、不打下游），防止一个慢依赖占满全部执行槽 |
 | `agentflow.resilience.dependencies.<name>.failure-threshold` | llm/image 5，wechat/xhs 3，web 10 | 连续"依赖侧失败"（仅 C0001 连接拒绝 / C0002 超时 / C0003 协议错误）达到阈值即熔断；A04xx 等客户端错误视为对端可达并重置计数 |
@@ -106,13 +111,19 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 
 - **成品远端副本同步（P7-3#12b）**：`agentflow.content.storage.*`（默认关闭）。开启后 `publish.local` 落盘成功的成品可推到任意 S3 兼容端点（MinIO/OSS/AWS），键为 `{key-prefix}/{artifactId}/{相对路径}`。手动 `POST /api/artifacts/{id}/sync`，后台 `sweep` 每轮补 20 条；只同步 `file_state=complete` 的成品（半套不上远端，否则"本地丢了还能 repair"变成"远端也错了"）。**同步永不改 `file_state`**，失败只写 `sync_state=failed` + `sync_error`——备份面坏了却说"稿子没了"是最坏的误导。成功时把 `{相对路径 → sha256}` 清单落库：它既是本地目录被清空后的下载白名单（`GET /{id}/file?path=` 回落到远端字节，先比对 sha256，不一致宁可 404 也不交付坏副本），也是"远端确实有货"的证据。签名是纯 JDK 的 AWS SigV4（`SigV4`，不引 SDK），path-style、`Redirect.NEVER`、错误报文只带 HTTP 状态与 S3 `<Code>`（不回显对端 body，防凭证经错误信息外泄）。指标 `agentflow.artifact.sync{state=synced|failed|skipped|served|bucket_unavailable}`。
 
+- **跨实例全局执行配额（P7-3#11）**：`agentflow.exec.global-quota.*`（默认关闭）。执行闸门是进程内 `Semaphore`，多实例就是 `16×N` 条链路同时打向同一个 PG 与同一批下游——**名额记在共享库 `execution_lease` 里，N 个实例看同一本账**。仲裁段"`SELECT … FOR UPDATE` 哨兵行 → 回收过期租约 → 数名额 → 插租约"在一个事务内完成；少了那把行锁，两个实例会在同一瞬间各自数出"还剩一个名额"（反向验证实测：去掉 `FOR UPDATE` 后，上限 4 的集群同一时刻跑起了 10 条）。口径：一条租约覆盖**引擎真正执行的这段时间**（拿到本地槽之后、收尾之前），所以 `max-concurrent` 读作"全集群同时在跑"，本地排队不占额度。三道防线：① 提交时只读预检，集群满了同步 `429/A0429` 且不建执行记录；② 拿到本地槽后真正预留，等不到名额落 `FAILED`（`rejected{reason="global_quota_timeout"}`），与"等不到本地槽"同口径，不留永远 `RUNNING`；③ 心跳续租 + 过期回收：崩溃实例的租约由下一次预留顺带删掉（否则一次 OOMKill 就永久吃掉一份全局容量），而活着的长执行靠续租保住名额；租约被回收时**不重新抢占**，只记 `agentflow.exec.quota{kind=lost}`——重抢会让同一执行占两份名额。优雅停机把本机名额立刻交回，不等 TTL。指标 `agentflow.exec.global.reserved`（抓取时查库，报集群实况；DB 抖动时该值为 NaN 而不是让整个指标页 500）/ `.capacity` / `.waiting`（本机正在等集群名额的执行数）。**状态口径**：执行记录的 `RUNNING` 含"已受理但还在等本地槽或集群名额"这一段，所以集群跑满时 `RUNNING` 会大于真正在跑的数量——用 `exec.global.reserved`（集群实况）与 `exec.global.waiting`（等待数）区分"在跑"和"在等"，`execution.queue.wait` 直方图含这两段等待。真实形态复验（两台容器实例共用一个 PG16，scratch 库，`global-cap=2`、本地 `max-concurrent=8`）：一次并发提交 8 条（2 条在 curl 侧连接失败，实际受理 6 条），租约峰值恒为 2 且分布在两个实例 id 上，6 条执行耗时呈 8/8/16/16/24/24s（2 宽的门把排队时间原样摊进墙钟）；对照组关掉配额时同一批并发实测 6 条同时在跑、`execution_lease` 零行。**同步拒绝**面：预算被 2 条占住后再提交 6 条，4 条当场 `429/A0429`（"集群执行配额已满（在跑 2 条）"）且不建执行记录，另 2 条在预检与预留之间挤进去排队。**不做的事**：限流仍是进程内固定窗（跨实例要网关或 Redis）、舱壁/熔断仍各自计数、cron 领发仍靠 `next_fire_at` CAS。
+
 ## 4. 已知限制（延期台账）
 
 > **当前形态口径**：本项目按**单作者/受信小团队自用**交付与验证。首轮专家评审给出对外多用户形态的
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：多实例全局配额（#11）、真异地副本缺云端桶凭证（#9 的定时/产物归档/告警与 #12b 的成品远端副本已于 P7-3 接上，代码与挂点齐了、本机 MinIO 实测通过，缺的是云桶凭证与生产启用）、微信真凭证外发未验。主密钥轮换（#16）、下游舱壁/熔断（#17）、成品完整性补偿（#12a）已于 P7-3 完成。
+> **对外仍 NO-GO** 的剩余理由：真异地副本缺云端桶凭证（#9 的定时/产物归档/告警与 #12b
+> 的成品远端副本已于 P7-3 接上，代码与挂点齐了、本机 MinIO 实测通过，缺的是云桶凭证与生产启用）、
+> 微信真凭证外发未验、跨实例限流/舱壁计数/同步令牌仍为进程内（多实例部署要靠网关或 Redis）。
+> 主密钥轮换（#16）、下游舱壁/熔断（#17）、成品完整性补偿（#12a）、
+> 跨实例全局执行配额（#11，含两台容器实例共用一个 PG16 的实机复验）已于 P7-3 完成。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -128,7 +139,8 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~下游无熔断/舱壁，一个慢依赖可占满执行槽~~ | ✅ P7-3#17 已修：`DependencyGuard` 在节点注册处按依赖（llm/image/wechat/xhs/web）包舱壁+熔断；连续 C0001–C0003 触发 open，期间 `C0004` 快速失败且不打下游，冷却后单探测恢复；A04xx 不算依赖失败。指标 `agentflow.dependency.state/trips/rejected`，真实 HTTP 桩 E2E 验证 open 期间下游零请求 | - |
 | ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 4 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404、未启用存储时同步入口如实回"未启用"） | - |
 | ~~成品只落本地卷，换实例/重建卷即丢~~ | ✅ P7-3#12b 已修：可选 S3 兼容远端副本（SigV4 纯 JDK 实现），`POST /api/artifacts/{id}/sync` + 后台补扫；下载在本地缺失时按 sha256 清单回落到远端，校验不一致宁可 404。真 MinIO 实测往返与"错密钥必被 403 拒"，另 7 条 E2E 覆盖写失败/PUT 成功但对象不在/远端被改坏/补扫自愈/归属隔离/关闭态如实报未启用 | - |
-| 多实例：进程内限流 / 每实例独立 16 槽 / 舱壁与熔断各自计数 / 成品库已有远端副本但同步无分布式令牌 | 🟡 单实例假设（成品副本面已由 #12b 解除） | 十万档（评审 §5），配额见 #11 |
+| 多实例：限流进程内固定窗 / 舱壁与熔断各自计数 / 同步无分布式令牌 | 🟡 单实例假设（执行额度面已由 #11 解除：`global-quota` 打开即全集群一份账，双容器实机复验；其余仍需网关/Redis） | 十万档（评审 §5） |
+| ~~无全局执行配额，多实例即 `16×N` 打同一个 PG（评审 #11）~~ | ✅ P7-3#11 已修：`execution_lease` + 哨兵行 `FOR UPDATE` 仲裁、租约 TTL + 心跳续租 + 过期回收、单用户上限、预检 429 / 等不到落 FAILED、停机归还名额。**fail-closed**：配额表缺失时执行失败而不是放开上限。11 条单测 + 2 条真实 HTTP E2E；**反向验证**：去掉 `FOR UPDATE` 后上限 4 的集群同时跑起 10 条（测试当场变红）；真 PG16 实测行锁排队 2.35s、过期回收、按实例作用域的释放不误删他人租约；**两台容器实例共用一个 PG16 实机复验**：`cap=2` 时租约峰值 2 且分布在两个实例、6 条并发耗时摊成 8/8/16/16/24/24s，关配额对照组 6 条同时在跑，预算占满后新提交 4/6 当场 `429/A0429` 且不入库 | - |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
 | ~~cron 定时触发（目前仅手动 API 触发）~~ | ✅ P3 已交付（next_fire_at CAS 领发 + 节拍参数化，见 docs/PROGRESS.md） | - |

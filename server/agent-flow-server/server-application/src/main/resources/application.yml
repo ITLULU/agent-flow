@@ -90,6 +90,21 @@ agentflow:
     max-concurrent: ${AGENTFLOW_EXEC_MAX_CONCURRENT:16}
     acquire-timeout: ${AGENTFLOW_EXEC_ACQUIRE_TIMEOUT:5m}
     max-queued: ${AGENTFLOW_EXEC_MAX_QUEUED:64}
+    global-quota:
+      # 跨实例全局执行配额（评审 P7-3 #11）：默认关。单实例时上面的 max-concurrent 就是全局上限，
+      # 打开它等于多一张表、多一条事务；多实例部署时若不开，全集群同时在跑的是 16×实例数。
+      # 名额记在共享库 execution_lease 表里，仲裁靠 quota_gate 哨兵行 FOR UPDATE；配额表缺失时
+      # 执行直接失败（fail-closed），不会退化成"各数各的"。
+      enabled: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_ENABLED:false}
+      # 全集群同时在跑的执行数上限；启用时必填且 >= 1（留空即启动失败）
+      max-concurrent: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_MAX_CONCURRENT:}
+      # 单个归属人（workflow.owner_id）在集群里最多同时跑几条；0=只受全局上限约束
+      per-user-max-concurrent: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_PER_USER_MAX_CONCURRENT:0}
+      # 租约 TTL 防实例崩溃不还名额；续租节拍必须明显小于 TTL，否则长执行会被当成崩溃残留抢走名额
+      lease-ttl: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_LEASE_TTL:10m}
+      renew-interval: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_RENEW_INTERVAL:30s}
+      # 拿到本地槽后等集群名额的重试节拍，最长等待复用上面的 acquire-timeout
+      reserve-retry-interval: ${AGENTFLOW_EXEC_GLOBAL_QUOTA_RESERVE_RETRY_INTERVAL:1s}
   engine:
     # 同一层（互不依赖的支路）并发上限：并行分支执行时同时活跃的节点数天花板。
     # 上限保护的是下游舱壁与进程连接/线程预算，调大不会让单节点变快，只会让抖动时更容易打穿依赖。
