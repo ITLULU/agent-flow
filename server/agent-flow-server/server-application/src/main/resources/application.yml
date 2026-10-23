@@ -43,6 +43,7 @@ agentflow:
     api-token: ${AGENTFLOW_API_TOKEN:}
     jwt-secret: ${AGENTFLOW_JWT_SECRET:}   # enabled=true 且此值为空 → 启动自检 fail-fast；本地 false 时可用 dev fallback
     master-key: ${AGENTFLOW_MASTER_KEY:}   # 凭证库 AES-GCM 主密钥（base64 32B）；缺失时凭证库报 A0400，其它功能不受影响
+    master-key-previous: ${AGENTFLOW_MASTER_KEY_PREVIOUS:}   # 轮换期旧主密钥：只解密不加密，空=不启用双读
     token-ttl: 2h                          # JWT 有效期
     rate-limit-per-minute: 120             # 登录用户/服务通道各自的每分钟上限；显式 0=关掉整套限流（仅 enabled=true 生效）
     rate-limit-auth-per-minute: 30         # /api/auth/** 独立阈值，按客户端 IP 分桶：刷登录不能再拖垮服务通道与业务桶

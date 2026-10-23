@@ -56,9 +56,18 @@ public class JdbcCredentialProvider implements CredentialProvider {
             return Optional.empty();
         }
         try {
-            Map<String, String> secrets = mapper.readValue(cipher.decrypt(enc.get()),
-                    new TypeReference<Map<String, String>>() {
-                    });
+            String plain = cipher.decrypt(enc.get());
+            if (!cipher.isPrimaryEnvelope(enc.get())) {
+                // 轮换窗口：旧密钥/旧格式密文在首次使用时重封装为新主密钥，previous 才能最终退场
+                try {
+                    repository.rewrapOwned(credentialId, ownerId.getAsLong(), cipher.encrypt(plain));
+                    log.info("credentialId={} 已在读取时重封装为新主密钥", credentialId);
+                } catch (RuntimeException e) {
+                    log.warn("credentialId={} 重封装失败（不影响本次解析）: {}", credentialId, e.getClass().getSimpleName());
+                }
+            }
+            Map<String, String> secrets = mapper.readValue(plain, new TypeReference<Map<String, String>>() {
+            });
             return Optional.of(secrets);
         } catch (Exception e) {
             // 只报类型：解密/解析链路任何异常都不得把内容带进日志

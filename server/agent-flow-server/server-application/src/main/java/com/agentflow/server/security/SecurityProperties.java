@@ -17,6 +17,7 @@ public record SecurityProperties(
         Integer rateLimitAuthPerMinute,      // /api/auth/** 单独阈值（按客户端 IP 分桶），与业务桶互不挤占
         Boolean trustForwardedFor,           // 只在服务前面有可信反代时打开：取 XFF 第一个值当客户端 IP
         String masterKey,           // AGENTFLOW_MASTER_KEY（base64 32B）；生产仍只从 env 注入，进属性仅为测试可覆盖
+        String masterKeyPrevious,   // AGENTFLOW_MASTER_KEY_PREVIOUS：轮换期旧密钥，只解密；空=不启用双读
         String bootstrapAdminUsername,  // AGENTFLOW_BOOTSTRAP_ADMIN_USERNAME：启动时创建/保留的管理员账号；空=不引导
         String bootstrapAdminPassword,  // AGENTFLOW_BOOTSTRAP_ADMIN_PASSWORD：只在创建新账号时使用，永不打印
         String metricsToken         // AGENTFLOW_METRICS_TOKEN：Prometheus 抓取专用令牌，仅解锁 /actuator/prometheus；空=不开放
@@ -31,6 +32,9 @@ public record SecurityProperties(
         }
         if (masterKey == null) {
             masterKey = "";
+        }
+        if (masterKeyPrevious == null) {
+            masterKeyPrevious = "";
         }
         if (bootstrapAdminUsername == null) {
             bootstrapAdminUsername = "";

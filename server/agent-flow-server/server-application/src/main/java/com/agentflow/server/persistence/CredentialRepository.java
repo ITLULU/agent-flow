@@ -61,6 +61,12 @@ public class CredentialRepository {
                 (rs, i) -> rs.getString(1), id, ownerId).stream().findFirst();
     }
 
+    /** 轮换窗口内的重封装：只改密文不改明文，属主限定避免跨租户改写。 */
+    public int rewrapOwned(long id, long ownerId, String secretJsonEnc) {
+        return jdbc.update("UPDATE user_credentials SET secret_json_enc = ?, updated_at = CURRENT_TIMESTAMP "
+                + "WHERE id = ? AND owner_id = ?", secretJsonEnc, id, ownerId);
+    }
+
     public int deleteOwned(long id, long ownerId) {
         return jdbc.update("DELETE FROM user_credentials WHERE id = ? AND owner_id = ?", id, ownerId);
     }

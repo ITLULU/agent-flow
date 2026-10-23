@@ -91,7 +91,8 @@ class SecurityPrimitivesTest {
     @Test
     void tamperedCipherTextRejected() {
         AesGcmCipher c = cipher((byte) 4);
-        byte[] raw = Base64.getDecoder().decode(c.encrypt("topsecret"));
+        String envelope = c.encrypt("topsecret");
+        byte[] raw = Base64.getDecoder().decode(envelope.substring(envelope.lastIndexOf(':') + 1));
         raw[raw.length - 1] ^= 0x01;
         String tampered = Base64.getEncoder().encodeToString(raw);
         assertThatThrownBy(() -> c.decrypt(tampered))

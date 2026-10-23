@@ -58,7 +58,8 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `agentflow.security.api-token` | `${AGENTFLOW_API_TOKEN:}`（空） | 仅环境变量注入，禁止写死进 yml；P3 后作为服务间调用通道（X-API-Token），恒定时间比较。**P7-1 起该通道主体是 uid=0 / role=ops，不是全站管理员**：它只能读写 uid=0 名下的资源，碰他人工作流/凭证一律 404（评审 #2 修复）。用它跑创作脚本时，产出的工作流与成品都归属 uid=0 |
 | `agentflow.security.metrics-token` | `${AGENTFLOW_METRICS_TOKEN:}`（空） | **Prometheus 抓取专用身份（P7-2c）**：只对 `GET /actuator/prometheus` 生效，支持 `Authorization: Bearer <token>` 或 `X-Metrics-Token`；同一把 token 调业务 API 一律 401。未配置时该端点保持 401（安全默认）。容器部署走 `AGENTFLOW_METRICS_TOKEN_FILE=/run/secrets/metrics_token`，`gen-secrets.sh` 自动随机生成 |
 | `agentflow.security.jwt-secret` | `${AGENTFLOW_JWT_SECRET:}`（空） | env 注入 ≥32B；enabled=true 且未配 → 启动即失败（fail-fast）；prod 必配 |
-| `agentflow.security.master-key` | `${AGENTFLOW_MASTER_KEY:}`（空） | env 注入 base64(32B)；凭证库 AES-GCM 主密钥；未配时凭证 API 报 A0400，其余功能不受影响 |
+| `agentflow.security.master-key` | `${AGENTFLOW_MASTER_KEY:}`（空） | env 注入 base64(32B)；凭证库 AES-GCM 主密钥；未配时凭证 API 报 A0400，其余功能不受影响。新密文封装为 `v2:{kid}:base64(iv‖ct)`，启动日志只回显 kid 指纹，便于核对生效密钥 |
+| `agentflow.security.master-key-previous` | `${AGENTFLOW_MASTER_KEY_PREVIOUS:}`（空） | **轮换窗口专用（P7-3#16）**：旧主密钥只解密不加密；为空=不启用双读。旧密文在首次被业务读取时自动用新主密钥重封装，全部迁移完成后即可清空此配置 |
 | `agentflow.security.token-ttl` | `2h` | JWT 有效期；prod 可改短，改后需同步前端刷新策略 |
 | `agentflow.security.rate-limit-per-minute` | `120` | 登录用户（per-uid）与服务通道（独立 `svc` 桶）各自的每分钟固定窗上限；`0`=关掉整套限流；多实例部署时需改网关/Redis 计数（已记账） |
 | `agentflow.security.rate-limit-auth-per-minute` | `30` | `/api/auth/**`（注册/登录）单独阈值，**按客户端 IP 分桶**。拆桶原因：原先匿名与服务通道同挤 uid=0 一个桶，刷登录接口就能把两者一起打满（评审 P6 #6） |
@@ -70,6 +71,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | `spring.flyway.enabled` | `true` | 不要改：schema 只允许迁移文件演进 |
 | `management.endpoint.health.probes.enabled` | `true` | 不要改：liveness/readiness 分离是 compose 健康检查依赖 |
 | `AGENTFLOW_MASTER_KEY`（环境变量） | 未设置 | 已在 P3 接入（yml 映射到 `agentflow.security.master-key`）；生产上线前必须注入 base64(32B) 主密钥 |
+| `AGENTFLOW_MASTER_KEY_PREVIOUS`（环境变量） | 未设置 | 轮换期旧主密钥（base64 32B）；容器走 `AGENTFLOW_MASTER_KEY_PREVIOUS_FILE`，空文件按未配置处理。窗口结束必须清空，否则旧密钥的泄露面一直存在 |
 | `agentflow.nodes.llm.api-key` / `image.api-key` | `${AI_API_KEY:${BAILIAN_API_KEY:}}`（空） | env 注入（`AI_API_KEY` 为统一入口，`BAILIAN_API_KEY` 保留兼容；容器走 `AI_API_KEY_FILE`）；空凭证不阻塞启动，`copy.write`/`llm.chat`/`image.cover`/`image.wanxiang` 执行时报不可重试配置错 |
 | `agentflow.nodes.llm.default-model` | `qwen-plus` | 节点 params.model 可逐次覆盖（多模型可配置） |
 | `agentflow.nodes.image.base-url` | `https://dashscope.aliyuncs.com` | 仅测试/代理环境改；节点 `ratio`/`size` 决定出图尺寸 |
@@ -97,7 +99,7 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > **NO-GO** 决议（🛑 4 项：凭证跨租户可读、`X-API-Token` 即全站 admin、无任何 metrics、DB 宕机时 readiness 仍报 UP），
 > 完整算式与证据见 [docs/EXPERT-REVIEW-P6.md](docs/EXPERT-REVIEW-P6.md)。**四条 🛑 已于 P7-1 修完并实机反向验证**，
 > 🔶 5 项（密钥 fail-fast / 匿名限流桶 / TIMEOUT 重复发布 / 抢注即接管 / 备份演练）已于 P7-2 修复；
-> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、主密钥轮换（#16）、微信真凭证外发未验。
+> **对外仍 NO-GO** 的剩余理由：备份自动定时与异地副本未接（#9 仅到 🟡）、多实例全局配额（#11）、下游熔断/舱壁（#17）、微信真凭证外发未验。主密钥轮换（#16）已于 P7-3 完成。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -109,6 +111,8 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | 匿名请求共享 uid=0 限流桶（登录全局 120/min） | 🔶 见评审 #6 | P7-2 |
 | 执行判 TIMEOUT 后节点仍继续跑并真实发布（重复草稿） | 🔶 见评审 #7 | P7-2（1 人日） |
 | ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
+| ~~主密钥无 kid/轮换流程（换密钥后旧凭证全废）~~ | ✅ P7-3#16 已修：primary+previous 双读单写，新密文带 kid，旧密文首次读取自动重封装；容器实测轮换前凭证执行成功、清空 previous 后仍成功 | - |
+| 下游无熔断/舱壁，一个慢依赖可占满执行槽 | ⚠️ 见评审 #17 | P7-3 |
 | 多实例：本地成品库 / 进程内限流 / 每实例独立 16 槽 | ⚠️ 单实例假设 | 十万档（评审 §5） |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
@@ -180,6 +184,25 @@ AF_USER=<你> AF_PASS=<8-64位> scripts/run-creation.sh --mode xhs --topic "秋�
 ```
 
 安全边界（实测口径）：容器 `read_only: true` + `cap_drop: [ALL]` + `no-new-privileges` + tmpfs `/tmp`，运行期只在 `/app/data/library` 卷写盘；秘密经镜像内 `deploy/docker-entrypoint.sh` 白名单把 `*_FILE` 解析成同名 env 后 `unset` 掉 `*_FILE`，因此密钥不进 compose 明文、不进命令行、不进 `docker inspect`，日志只打印变量名。停机口径：`docker compose stop agent-flow-server` → `Graceful shutdown complete` 实测 1s 内完成（在途请求排空、Hikari 干净关闭）。
+
+**主密钥轮换（P7-3#16，双读单写）**：
+
+```bash
+cd /path/to/SpringCloudAdmin/docker-compose/agent-flow
+openssl rand -base64 32 > secrets/master_key.new     # 1) 生成新主密钥
+cp secrets/master_key secrets/master_key_previous    # 2) 旧密钥进"上一把"，新密钥上位
+mv secrets/master_key.new secrets/master_key
+chmod 600 secrets/master_key secrets/master_key_previous
+docker compose up -d --force-recreate agent-flow-server
+# 3) 启动日志核对：master key kid 已变化，AGENTFLOW_MASTER_KEY_PREVIOUS present: true
+# 4) 旧凭证在被工作流首次解密时自动重封装；用 kid 查还剩多少未迁移（把 <newKid> 换成日志里的值）：
+docker compose exec agent-flow-db psql -U agentflow -d agentflow -tAc \
+  "SELECT count(*) FROM user_credentials WHERE secret_json_enc NOT LIKE 'v2:<newKid>:%'"
+# 5) 计数为 0 后清空旧密钥并重启（此后旧密钥彻底失效）：
+: > secrets/master_key_previous && docker compose up -d --force-recreate agent-flow-server
+```
+
+旧格式（P3 起裸 Base64）与 `v2:{旧kid}` 密文在窗口内都可读；`previous` 只在解密时参与，新写入永远用新主密钥。**未迁移的凭证若提前清空 previous 将不可解**，所以第 4 步的计数必须归零。多实例部署时每个实例必须注入同一对主密钥/旧密钥（当前仍靠部署层保证）。
 
 升级 / 回滚：先 `git -C /path/to/agent-flow checkout <good-sha>` 并按上面第 1 步重建镜像，再回 compose 目录 `docker compose up -d`（镜像 tag 不变时加 `--force-recreate`）；schema 只由 Flyway 向前迁移，回滚旧镜像前需确认迁移是向后兼容的（破坏性变更要配套备份 `docker compose exec agent-flow-db pg_dump -U agentflow agentflow > backup.sql`）。
 

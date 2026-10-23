@@ -39,9 +39,14 @@ public class AuthConfig {
             return null;
         }
         try {
-            return new AesGcmCipher(AesGcmCipher.decodeKey(master));
+            byte[] primary = AesGcmCipher.decodeKey(master);
+            String previous = props.masterKeyPrevious();
+            return previous.isBlank()
+                    ? new AesGcmCipher(primary)
+                    : new AesGcmCipher(primary, AesGcmCipher.decodeKey(previous));
         } catch (IllegalArgumentException | IllegalStateException e) {
-            throw new IllegalStateException("AGENTFLOW_MASTER_KEY 非法（需 base64 的 32 字节）: " + e.getMessage());
+            throw new IllegalStateException(
+                    "AGENTFLOW_MASTER_KEY(_PREVIOUS) 非法（需 base64 的 32 字节）: " + e.getMessage());
         }
     }
 }

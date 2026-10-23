@@ -1,5 +1,6 @@
 package com.agentflow.server.startup;
 
+import com.agentflow.common.security.AesGcmCipher;
 import com.agentflow.server.config.ContentProperties;
 import com.agentflow.server.config.NodeConfigProperties;
 import com.agentflow.server.security.SecurityProperties;
@@ -10,6 +11,7 @@ import java.util.Arrays;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.env.Environment;
@@ -28,13 +30,16 @@ public class StartupSelfCheck implements ApplicationRunner {
     private final SecurityProperties securityProps;
     private final ContentProperties contentProps;
     private final NodeConfigProperties nodeProps;
+    private final ObjectProvider<AesGcmCipher> cipherProvider;
 
     public StartupSelfCheck(Environment env, SecurityProperties securityProps,
-                            ContentProperties contentProps, NodeConfigProperties nodeProps) {
+                            ContentProperties contentProps, NodeConfigProperties nodeProps,
+                            ObjectProvider<AesGcmCipher> cipherProvider) {
         this.env = env;
         this.securityProps = securityProps;
         this.contentProps = contentProps;
         this.nodeProps = nodeProps;
+        this.cipherProvider = cipherProvider;
     }
 
     @Override
@@ -43,7 +48,13 @@ public class StartupSelfCheck implements ApplicationRunner {
         log.info("active profiles : {}", Arrays.toString(env.getActiveProfiles()));
         log.info("server port     : {}", env.getProperty("server.port", "8080"));
         log.info("security.enabled: {}", securityProps.enabled());
-        log.info("AGENTFLOW_MASTER_KEY present : {}", !securityProps.masterKey().isBlank());
+        log.info("AGENTFLOW_MASTER_KEY present : {} (kid={})",
+                !securityProps.masterKey().isBlank(), masterKeyId());
+        log.info("AGENTFLOW_MASTER_KEY_PREVIOUS present: {}", !securityProps.masterKeyPrevious().isBlank());
+        if (!securityProps.masterKeyPrevious().isBlank()
+                && securityProps.masterKeyPrevious().equals(securityProps.masterKey())) {
+            log.warn("AGENTFLOW_MASTER_KEY_PREVIOUS 与主密钥相同，轮换未生效（双读无意义）");
+        }
         log.info("AGENTFLOW_API_TOKEN present  : {}", !securityProps.apiToken().isBlank());
         log.info("AGENTFLOW_METRICS_TOKEN present: {}", !securityProps.metricsToken().isBlank());
         log.info("jwt-secret present           : {}", !securityProps.jwtSecret().isBlank());
@@ -69,6 +80,12 @@ public class StartupSelfCheck implements ApplicationRunner {
         if ("prod".equals(String.join(",", env.getActiveProfiles())) && !securityProps.enabled()) {
             log.error("!! prod profile 下 security.enabled=false，违反安全基线，禁止对外服务 !!");
         }
+    }
+
+    /** 只回显主密钥指纹（SHA-256 前 8 字节），供轮换时核对生效密钥，不泄露密钥本身。 */
+    private String masterKeyId() {
+        AesGcmCipher cipher = cipherProvider.getIfAvailable();
+        return cipher == null ? "n/a" : cipher.keyId();
     }
 
     /**
