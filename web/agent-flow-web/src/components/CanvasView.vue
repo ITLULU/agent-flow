@@ -505,11 +505,11 @@ const groups = computed(() => {
       </aside>
 
       <div class="schedule-bar">
-        <span class="muted">调度</span>
+        <span class="muted bar-label">调度</span>
         <input v-model.trim="cron" placeholder="cron: 0 0 8 * * *" />
         <button class="ghost-btn" @click="saveSchedule">登记</button>
         <button class="ghost-btn" @click="clearSchedule">撤销</button>
-        <span v-if="nextFireAt" class="muted">下次：{{ nextFireAt }}</span>
+        <span v-if="nextFireAt" class="muted next-fire">下次：{{ nextFireAt }}</span>
       </div>
 
       <div v-if="error" class="canvas-error">

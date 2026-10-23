@@ -11,6 +11,10 @@
   --warn: #d97706;
   --radius: 12px;
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  /* 调度条是绝对定位浮层，执行抽屉必须按它的实际占位让位：用变量单点定义，避免窄屏换行/挤压后压住抽屉 */
+  --schedule-bar-bottom: 12px;
+  --schedule-bar-height: 54px;
+  --exec-drawer-gap: 10px;
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--bg);
@@ -663,7 +667,7 @@ textarea {
 .schedule-bar {
   position: absolute;
   left: 236px;
-  bottom: 14px;
+  bottom: var(--schedule-bar-bottom);
   z-index: 15;
   display: flex;
   align-items: center;
@@ -674,6 +678,15 @@ textarea {
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
   padding: 7px 10px;
   max-width: calc(100% - 560px);
+  height: var(--schedule-bar-height);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+/* 单行 + 横向滚动：子项不许压缩（按钮被压窄会竖排换行，把条撑高到抽屉里） */
+.schedule-bar > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .schedule-bar input {
@@ -720,7 +733,7 @@ textarea {
 .exec-drawer {
   position: absolute;
   left: 236px;
-  bottom: 62px;
+  bottom: calc(var(--schedule-bar-bottom) + var(--schedule-bar-height) + var(--exec-drawer-gap));
   width: min(660px, calc(100% - 580px));
   min-width: 380px;
   max-height: 46%;
@@ -885,7 +898,6 @@ textarea {
   .schedule-bar {
     left: 196px;
     max-width: calc(100% - 212px);
-    flex-wrap: wrap;
   }
 
   .exec-drawer {
@@ -936,7 +948,12 @@ textarea {
   }
 
   .schedule-bar input {
-    width: 100%;
+    width: 120px;
+  }
+
+  /* 窄屏让位给输入框与按钮：出现横向滚动条会吃掉条内竖向空间，宁可少显示一行提示 */
+  .schedule-bar .next-fire {
+    display: none;
   }
 
   .exec-drawer {
@@ -948,5 +965,20 @@ textarea {
 
   .inspector {
     width: calc(100% - 186px);
+  }
+}
+
+@media (max-width: 520px) {
+  /* 再窄就只能省装饰：标签与 cron 输入让位给两个动作按钮，避免滚动条把调度条内容切掉 */
+  .schedule-bar {
+    gap: 6px;
+  }
+
+  .schedule-bar .bar-label {
+    display: none;
+  }
+
+  .schedule-bar input {
+    width: 104px;
   }
 }
