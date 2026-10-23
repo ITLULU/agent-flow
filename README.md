@@ -123,7 +123,8 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 > 的成品远端副本已于 P7-3 接上，代码与挂点齐了、本机 MinIO 实测通过，缺的是云桶凭证与生产启用）、
 > 微信真凭证外发未验、跨实例限流/舱壁计数/同步令牌仍为进程内（多实例部署要靠网关或 Redis）。
 > 主密钥轮换（#16）、下游舱壁/熔断（#17）、成品完整性补偿（#12a）、
-> 跨实例全局执行配额（#11，含两台容器实例共用一个 PG16 的实机复验）已于 P7-3 完成。
+> 跨实例全局执行配额（#11，含两台容器实例共用一个 PG16 的实机复验）已于 P7-3 完成；
+> #12a/#12b/#18 三条功能回路另于 2026-10-23 在临时容器实例 + 真 PG16 + 真 MinIO 上复跑通过（含反向验证）。
 
 | 项 | 状态 | 兑现节点 |
 |---|---|---|
@@ -137,14 +138,14 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 | ~~执行闸门 `Semaphore(16)` 硬编码、排队无超时~~ | ✅ P7-3#10 已修：`agentflow.exec.*` 运行期可配（默认 16 槽 / 排队 64 / 等槽 5m），排队满同步 429，超时执行落 FAILED；容器实测 env 覆盖与非法值 fail-fast | - |
 | ~~主密钥无 kid/轮换流程（换密钥后旧凭证全废）~~ | ✅ P7-3#16 已修：primary+previous 双读单写，新密文带 kid，旧密文首次读取自动重封装；容器实测轮换前凭证执行成功、清空 previous 后仍成功 | - |
 | ~~下游无熔断/舱壁，一个慢依赖可占满执行槽~~ | ✅ P7-3#17 已修：`DependencyGuard` 在节点注册处按依赖（llm/image/wechat/xhs/web）包舱壁+熔断；连续 C0001–C0003 触发 open，期间 `C0004` 快速失败且不打下游，冷却后单探测恢复；A04xx 不算依赖失败。指标 `agentflow.dependency.state/trips/rejected`，真实 HTTP 桩 E2E 验证 open 期间下游零请求 | - |
-| ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 4 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404、未启用存储时同步入口如实回"未启用"） | - |
-| ~~成品只落本地卷，换实例/重建卷即丢~~ | ✅ P7-3#12b 已修：可选 S3 兼容远端副本（SigV4 纯 JDK 实现），`POST /api/artifacts/{id}/sync` + 后台补扫；下载在本地缺失时按 sha256 清单回落到远端，校验不一致宁可 404。真 MinIO 实测往返与"错密钥必被 403 拒"，另 7 条 E2E 覆盖写失败/PUT 成功但对象不在/远端被改坏/补扫自愈/归属隔离/关闭态如实报未启用 | - |
+| ~~成品库"DB 有行、盘上没货"无补偿入口~~ | ✅ P7-3#12a 已修：`file_state`/`file_error` 落库 + `/api/artifacts/incomplete` 核对 + `/api/artifacts/{id}/repair` 补偿（文本按同源渲染逐字节重建，缺图如实报缺并保持 incomplete）；`ArtifactIntegrityE2ETests` 4 条含反向验证（删文件后下载真 404、缺图补偿不翻绿、非属主 repair 404、未启用存储时同步入口如实回"未启用"）；**容器形态已复验**（临时实例 + 真 PG16：删盘后 `/file` 真 404、`/incomplete` 如实为空、`repair` 后 sha256 逐字节相同） | - |
+| ~~成品只落本地卷，换实例/重建卷即丢~~ | ✅ P7-3#12b 已修：可选 S3 兼容远端副本（SigV4 纯 JDK 实现），`POST /api/artifacts/{id}/sync` + 后台补扫；下载在本地缺失时按 sha256 清单回落到远端，校验不一致宁可 404。真 MinIO 实测往返与"错密钥必被 403 拒"，另 7 条 E2E 覆盖写失败/PUT 成功但对象不在/远端被改坏/补扫自愈/归属隔离/关闭态如实报未启用；**容器形态已复验**（临时实例 + 真 MinIO：整目录删除后 `/file` 从远端逐字节取回且不落盘；SigV4 直投坏副本 ⇒ `/file` 404、`sync_state=failed` + `sync_error="远端副本校验不一致"`、`file_state` 不受牵连；清掉坏对象后 repair+sync 自愈） | - |
 | 多实例：限流进程内固定窗 / 舱壁与熔断各自计数 / 同步无分布式令牌 | 🟡 单实例假设（执行额度面已由 #11 解除：`global-quota` 打开即全集群一份账，双容器实机复验；其余仍需网关/Redis） | 十万档（评审 §5） |
 | ~~无全局执行配额，多实例即 `16×N` 打同一个 PG（评审 #11）~~ | ✅ P7-3#11 已修：`execution_lease` + 哨兵行 `FOR UPDATE` 仲裁、租约 TTL + 心跳续租 + 过期回收、单用户上限、预检 429 / 等不到落 FAILED、停机归还名额。**fail-closed**：配额表缺失时执行失败而不是放开上限。11 条单测 + 2 条真实 HTTP E2E；**反向验证**：去掉 `FOR UPDATE` 后上限 4 的集群同时跑起 10 条（测试当场变红）；真 PG16 实测行锁排队 2.35s、过期回收、按实例作用域的释放不误删他人租约；**两台容器实例共用一个 PG16 实机复验**：`cap=2` 时租约峰值 2 且分布在两个实例、6 条并发耗时摊成 8/8/16/16/24/24s，关配额对照组 6 条同时在跑，预算占满后新提交 4/6 当场 `429/A0429` 且不入库 | - |
 | ~~DAG 引擎/DSL 校验/执行落库/触发 API~~ | ✅ P1 已交付（见 docs/PROGRESS.md） | - |
 | ~~PG 真实实例联调（schema/连接池实机验证）~~ | ✅ P5-4 已交付（pgvector/pg16 容器实机：Flyway 3 迁移全成功、Hikari 连接池 + 2.6s 起服、执行与调度落库、重启数据保留，见 docs/PROGRESS.md） | - |
 | ~~cron 定时触发（目前仅手动 API 触发）~~ | ✅ P3 已交付（next_fire_at CAS 领发 + 节拍参数化，见 docs/PROGRESS.md） | - |
-| ~~并行分支执行（v1 拓扑序串行）~~ | ✅ P7-3#18 已修：引擎改为按依赖分层，同层节点并发（宽度 `agentflow.engine.max-parallel-nodes`，默认 8），层末汇合即止损点；支路失败 ⇒ 下游零放行、同层兄弟不抢占取消、结果仍按拓扑位序返回。`WorkflowEngineParallelTest` 5 条含反向对照（宽度=1 时菱形屏障必然失败，证明"并发"不是假绿） | - |
+| ~~并行分支执行（v1 拓扑序串行）~~ | ✅ P7-3#18 已修：引擎改为按依赖分层，同层节点并发（宽度 `agentflow.engine.max-parallel-nodes`，默认 8），层末汇合即止损点；支路失败 ⇒ 下游零放行、同层兄弟不抢占取消、结果仍按拓扑位序返回。`WorkflowEngineParallelTest` 5 条含反向对照（宽度=1 时菱形屏障必然失败，证明"并发"不是假绿）；**容器形态已复验**（同一镜像两种宽度对照：宽度 8 ⇒ 菱形两条支路墙钟 3.27s、下游桩实测并发峰值 2；宽度 1 ⇒ 6.51s、峰值 1） | - |
 | ~~LLM/生图/采集/发布节点~~ | ✅ P2 已交付（http.collect/llm.chat/image.wanxiang/wechat.draft，见 docs/PROGRESS.md） | - |
 | ~~创作流水线闭环（热榜/链接/话题 → 双渠道文案 → 指定比例主图 → 成品库 → 草稿）~~ | ✅ P4A 已交付（hotspot.fetch/article.extract/copy.write/image.cover/publish.local/xhs.draft/wechat.draft + `/api/artifacts*`，`P4CreationPipelineE2ETests` 两条通道端到端，见 docs/CREATION-GUIDE.md） | - |
 | 百炼真实链路 | ✅ key 已注入并实测（`AI_API_KEY` → DashScope `qwen-plus` HTTP 200）；公众号/小红书草稿外发仍需 `WECHAT_*` 真凭证后跑 `scripts/run-creation.sh` | 用户执行 |
