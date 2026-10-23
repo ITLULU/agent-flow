@@ -26,7 +26,7 @@
 | 模型接入 | **Spring AI 1.x 唯一抽象层 + Spring AI Alibaba** | ⚠️ 不引入 LangChain4j：与 Spring AI 是竞争性抽象（两套 ChatModel/Tool/RAG），混用=双倍维护+依赖冲突。"链/图/记忆"思想由自研引擎表达 |
 | LLM Provider | 多模型可配置：`openai-compatible`（百炼 compatible-mode / DeepSeek / OpenAI 通用）+ `dashscope-native`（万相异步生图必须走原生协议） | 见 §5 LlmGateway |
 | 数据库 | 默认 profile：H2 文件库（零外部依赖可启动）；`-prod` profile：PostgreSQL 16 + pgvector 扩展 | pgvector 一期只装不用（RAG 节点二期激活），挂账 |
-| 缓存/限流 | 默认：Caffeine 进程内；`-redis` profile：Redis 7 全局限流 | 100 QPS 档位进程内限流足够，挂账 |
+| 限流 | 实际交付：纯 JDK **固定窗计数**（`RateLimitFilter` 内 `ConcurrentHashMap`，桶键 = 主体/IP + 分钟），未引 Caffeine、无 `-redis` profile；阈值 `agentflow.security.rate-limit-per-minute`(120) 与 `rate-limit-auth-per-minute`(30，按客户端 IP 分桶) | 进程内计数只看得到本实例，跨实例限流仍要靠网关/Redis（README 限制表已挂账） |
 | schema 迁移 | Flyway（prod），H2 profile 用 `initSchema` 开关 | 禁止生产"启动即建表" |
 | 连接池 | HikariCP，`maximum-pool-size=20`，配置文件注明换算：20 连接 × 1 实例 << PG max_connections=100 | |
 | 爬虫/正文提取 | jsoup（显式超时+UA），正文可读化用 `net.dankito.readability4j` | 每个出网点走 §4.2 四件套基类 |
@@ -144,7 +144,7 @@ public interface LlmGateway {
 
 ### P3 平台 API（2 天）
 1. 工作流 CRUD + 版本保存（DSL 快照）+ cron 触发注册（重启从 DB 恢复）
-2. 执行查询/手动触发/重跑；用户注册登录 + JWT；限流（Caffeine token-bucket：单用户 10 req/s，全局 200 req/s 兜底）
+2. 执行查询/手动触发/重跑；用户注册登录 + JWT；限流（实际落地为纯 JDK 固定窗：业务主体 120 req/min、`/api/auth/**` 按 IP 30 req/min，见 `RateLimitFilter` 与 `agentflow.security.*`）
 - **DoD**：Swagger(knife4j) 全接口可调用；鉴权开关打开后全端点受控；SENSITIVE 清单落文档
 
 ### P4 前端画布（4 天）

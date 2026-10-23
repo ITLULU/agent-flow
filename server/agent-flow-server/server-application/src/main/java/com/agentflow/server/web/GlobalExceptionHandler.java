@@ -39,7 +39,8 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.BAD_GATEWAY; // C 类外部依赖错误
         };
         log.warn("业务异常 code={} msg={}", code.code(), ex.getMessage());
-        return ResponseEntity.status(status).body(ApiResponse.fail(code, ex.getMessage()));
+        // 传 detail 而不是 getMessage()：后者已含默认文案，ApiResponse.fail 再拼一次就成了"资源不存在: 资源不存在: …"
+        return ResponseEntity.status(status).body(ApiResponse.fail(code, ex.detail()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

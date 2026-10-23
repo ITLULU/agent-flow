@@ -113,6 +113,19 @@ class WorkflowApiE2ETests {
         assertThat(resp.getBody()).contains("A0400");
     }
 
+    /**
+     * HTTP 层钉住错误报文只带一层默认文案前缀：advice 若把已拼好的 getMessage() 再喂给
+     * ApiResponse.fail，客户端会看到"资源不存在: 资源不存在: workflow 999"。
+     */
+    @Test
+    void missingWorkflowReturnsSinglePrefixedMessage() {
+        ResponseEntity<String> resp = rest.getForEntity("/api/workflows/999999", String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(resp.getBody()).contains("\"code\":\"A0404\"")
+                .contains("\"message\":\"资源不存在: workflow 999999\"")
+                .doesNotContain("资源不存在: 资源不存在");
+    }
+
     /** 极简取值：从 {"data":{"k":123}} 结构中提取数值字段（避免为测试引 JSON 库）。 */
     private long extractLong(String json, String field) {
         int idx = json.indexOf("\"" + field + "\"");

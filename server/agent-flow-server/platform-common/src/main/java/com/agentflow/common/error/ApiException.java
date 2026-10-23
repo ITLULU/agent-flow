@@ -4,18 +4,26 @@ package com.agentflow.common.error;
 public class ApiException extends RuntimeException {
 
     private final ErrorCode errorCode;
+    private final String detail;
 
     public ApiException(ErrorCode errorCode) {
         super(errorCode.defaultMessage());
         this.errorCode = errorCode;
+        this.detail = null;
     }
 
     public ApiException(ErrorCode errorCode, String detail) {
         super(errorCode.defaultMessage() + ": " + detail);
         this.errorCode = errorCode;
+        this.detail = detail;
     }
 
     public ErrorCode errorCode() {
         return errorCode;
+    }
+
+    /** 未拼接前缀的原始原因：响应组装只认这里，否则默认文案会被拼两遍。 */
+    public String detail() {
+        return detail;
     }
 }
