@@ -4,7 +4,9 @@
 
 ## 1. 快速开始
 
-前置：JDK 21、Maven 3.9+、curl + jq；改前端另需 Node.js 20+（清单见 `docs/TOOLS-CHECKLIST.md`）。**默认 profile 零外部中间件依赖，克隆即可启动。**
+前置：JDK 21、Maven 3.9+、curl + jq；改前端另需 Node.js 20+（逐项版本见 `docs/TOOLS-CHECKLIST.md`，
+"哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 零外部中间件依赖，克隆即可启动。**
+本服务只连四类外部东西：数据源、LLM+生图（DashScope）、公众号、对象存储；**精排 rerank 不在本服务**，它属于检索侧 `spring-ai-agent/rag-kb`。
 
 ```bash
 cd server/agent-flow-server
@@ -128,6 +130,53 @@ docker -H unix://$HOME/.docker/run/docker.sock logs agent-flow-server | grep 成
 
 注意 fail-fast 的边界：`enabled=true` 而 1/2/3/4 任一为空 ⇒ **进程启动即退出**，这是设计而非故障；
 但"端点连不通"不会让进程退出（只记 ERROR 与 `bucket_unavailable` 指标），因为备份面挂掉不该拖垮创作主链路。
+
+### 三方依赖全景：谁必须装、谁必须给 key、缺了会怎样
+
+先划一条最容易读错的线：**`docker-compose/` 目录下那一堆中间件不等于本服务需要它们。**
+agent-flow 运行期只连四类东西：数据源、LLM/生图、公众号、对象存储。Nacos / Redis / MySQL /
+RocketMQ / Seata / Sentinel / Kafka 都是 `SpringCloudAdmin` 自己的微服务演示栈
+（Nacos 原先还是传递依赖，P7-3#12 已排除，见 `docs/PROGRESS.md`）。给本服务装环境时按下面这张表来，
+别按目录名挨个 up。
+
+| 依赖 | 具体用途（代码位置） | 本地能不能自给 | 缺了会怎样 |
+|---|---|---|---|
+| **DashScope（通义 qwen）** | `llm` 节点与创作文案，`SpringAiLlmGateway` 走 `com.alibaba.cloud.ai.dashscope`；默认模型 `qwen-plus`，节点可用 `params.model` 覆盖（application.yml:58-60） | ❌ 不能本地替代，只能给 key | 凭证空**不阻塞启动**，节点照常注册；执行时报不可重试的配置错误。舱壁 `llm: max-concurrent 8`（:117） |
+| **万相生图（同 DashScope 账号）** | `image.*` 节点，`DashScopeImageClient` 异步任务：`/api/v1/services/aigc/text2image/image-synthesis` + `/api/v1/tasks/{id}` | ❌ 同上 | 同上；舱壁 `image: max-concurrent 4` |
+| **微信公众号开放接口** | 草稿/素材发布：`cgi-bin/token`、`cgi-bin/material/add_material`、`cgi-bin/draft/add`（application.yml:64-67） | ❌ 需要公众号 app-id/secret，且**调用方出口 IP 要加白名单** | 空凭证不阻塞启动；`wechat.draft` 执行期失败。本地用 `publish.local` 出成品包代替，不碰平台 |
+| **小红书** | `xhs.draft` 默认只生**本地图文包**（`channel=xhs-local-package`）；接开放平台才需 `credentialId` 从凭证库取 token（`XhsDraftNodeExecutor.java:30`） | ✅ 默认路径零外部依赖 | 不接开放平台不影响交付物；接了则凭证缺失/越权时报错，舱壁 `xhs: max-concurrent 4` |
+| **热点榜四个公开源** | `hot.topic.fetch` 默认 `weibo,baidu,toutiao,zhihu`（`HotTopicFetchNodeExecutor.java:69-86`），单源失败只进 `failedSources` | ⚠️ 半可：节点支持 `endpointOverride` 换成自建/桩地址，换源不改代码 | 全挂则本次无热点，不影响其他节点。注意这四个是**公开网页接口，无 SLA、可能改字段或反爬**，别当生产依赖记账 |
+| **PostgreSQL 16 + pgvector** | prod profile 主数据源（application.yml:132-134 `${DB_URL}`）；默认 profile 用 H2 文件库 `./data/agentflow`（:14） | ✅ 本地 `pgvector/pgvector:pg16` 容器，compose 已带 | 默认 profile 起不来不影响本地跑（H2 够用）；prod profile 连不上则 readiness DOWN |
+| **S3 兼容对象存储** | 成品远端副本，`AGENTFLOW_STORAGE_*`（:76-86） | ✅ 本地 MinIO（`http://minio:9000`）已按生产同形态验过 | `enabled=false` 时一个字节不出网、也不建客户端；`enabled=true` 但配置不齐 = **启动即退出**（故意的 fail-fast） |
+| **成品库目录** | 所有产物读写被约束在此目录内（`JdbcContentStore.resolveInside`，:71） | ✅ 默认 `./data/library` | 目录不可写 ⇒ 启动自检打 ERROR，`publish.local`/`xhs.draft` 执行失败（`StartupSelfCheck.java:104`） |
+| **JDK 21 / Maven 3.10 / Node ≥ 20** | 编译运行（虚拟线程需 21）、Vue 3.5.44 + Vite 5.4.21 前端 | ✅ 本机全在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21 |
+| **Docker Desktop** | 容器形态复验与 compose 起停（本机 4.96.1 / 引擎 29.9.2） | ✅ | **不会自启**（`AutoStart=false` 且登录项 disabled），重启后要手动 `open -a Docker` |
+| **GitHub Actions** | CI：`ubuntu-latest` + JDK 21（`.github/workflows/ci.yml:10,20`） | ❌ 远端 | push 后不绿就是没验证过 |
+
+#### 精排（rerank）在哪一侧 —— 别在本服务里找它
+
+`rerank` **不是 agent-flow 的依赖**，全项目 grep 不到；它属于同机的检索服务 **`spring-ai-agent/rag-kb`**
+（配置见 `rag-kb/src/main/resources/application.yml:80-82`）。所以"要不要装 rerank"取决于你跑哪一侧：
+
+| 项 | rag-kb 侧口径 |
+|---|---|
+| 开关 | `RERANK_ENABLED`（默认 `false`：没部署推理服务时主链路不受牵连） |
+| 地址 | `RERANK_URL`，默认 `http://localhost:8087/rerank` |
+| 契约 | 请求 `{"query","texts"}`；响应两种都吃 —— TEI 裸数组 `[{"index","score"}]` 与托管 API `{"results":[{"index","relevance_score"}]}`（`TeiReranker.java:24-25`） |
+| 本地两个选项 | ① TEI CPU 容器 `rerank-mac`（8088）；② **llama.cpp Metal 走 Apple GPU**（`SpringCloudAdmin/rerank-apple-gpu/`，8089）——M1 Pro 实测 20 候选 296ms，同二进制 CPU 档 785ms，TEI CPU 4792ms |
+| 分数口径 | llama.cpp 回**未过 sigmoid 的原始 logit（可以是负数）**，TEI 回 0~1 ⇒ **跨后端只能比名次，不能比分数值**。`rerankScore` 全链路只用于排序与展示，无 0~1 阈值判断，所以负分安全；真跑过 `TeiReranker` 本体验证（`RerankLiveCheck.java`，20/40 候选整批返回 + 死端口反向降级） |
+| 缺了会怎样 | 静默**降级为融合名次截断** + 一行 WARN，`/api/query` 不会 500。⚠️ 这个降级会伪装成"精排已开"：`enabled=true` 但请求被服务端拒了（批量上限/permit 不够）时，功能上等于没开 —— 判据是返回的 `rerankScore` 是否非 null，不是 HTTP 200 |
+
+rag-kb 侧其余外部依赖：DashScope `qwen-plus`（chat）与 `text-embedding-v3`（**输出 1024 维，
+必须显式对齐 `embedding-dimension`，默认 1536 会在首次入库时 dimension mismatch 且建坏 collection**）、
+PG chunk store（`application-persistent.yml:5`）、可选 Milvus（本机 v2.4.9 在跑，换 embedding 模型 = 换向量空间 =
+必须换 collection 名或清库重灌）、以及 MCP server 对外暴露工具（`/mcp`）。
+
+#### 只有你能为我提供的东西（其余本机都能自建）
+
+`AI_API_KEY`（LLM+生图同源，`BAILIAN_API_KEY` 兼容保留）、`WECHAT_APPID`/`WECHAT_SECRET`（+ 把出口 IP 加白名单）、
+云桶的 AK/SK（上表六项）、以及若要接小红书开放平台的 token。
+**一律走 env 或 `*_FILE` 秘密文件，不要贴进对话、不要写进 yml/compose**；密钥落文件后 600、目录 700。
 
 ## 3. 架构与关键决策
 
