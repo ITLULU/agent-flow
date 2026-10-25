@@ -259,6 +259,12 @@ textarea {
   background: #f8fafc;
 }
 
+.ghost-btn.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .danger-btn {
   border: 1px solid #fecaca;
   background: #fff;

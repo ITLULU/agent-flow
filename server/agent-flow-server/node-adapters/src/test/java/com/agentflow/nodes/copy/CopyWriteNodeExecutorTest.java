@@ -173,11 +173,70 @@ class CopyWriteNodeExecutorTest {
                 "tone", "克制、有画面感", "length", 900, "temperature", 0.6), Map.of(), gateway);
 
         assertThat(gateway.last.system()).contains("【标题】"); // 模板里的硬格式要求
+        // 实测（2026-10-25 18:55，执行 15）：换了措辞但继承原文"10 条清单 + 对仗句式"，
+        // copy.originality 判 68 分/high。所以模板必须显式禁止"骨架级搬运"，只禁整句照抄不够。
+        assertThat(gateway.last.system()).contains("骨架也算抄袭")
+                .contains("条目数量、顺序").contains("不是……而是……");
         assertThat(gateway.last.prompt()).contains("渠道：微信公众号长文").contains("主题：深度工作")
                 .contains("目标读者：工作 3-8 年的知识工作者").contains("语气风格：克制、有画面感")
                 .contains("正文约 900 字");
         assertThat(gateway.last.temperature()).isEqualTo(0.6);
         assertThat(gateway.last.prompt()).contains("无外部素材");
+    }
+
+    private static NodeOutput runWithCtx(Map<String, Object> params, ExecutionContext ctx, LlmGateway gateway) {
+        return new CopyWriteNodeExecutor(() -> gateway).execute(new NodeInput(params, Map.of()), ctx);
+    }
+
+    @Test
+    void canvasSettingsDriveLengthWhenNodeParamAbsent() {
+        ExecutionContext withSettings = new ExecutionContext("t-1", 1L, 1L,
+                Map.of(CopyWriteNodeExecutor.SETTING_WECHAT_LENGTH, 2600,
+                        CopyWriteNodeExecutor.SETTING_XHS_LENGTH, 900));
+
+        StubGateway wechat = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "深度工作"), withSettings, wechat);
+        assertThat(wechat.last.prompt()).contains("正文约 2600 字");
+
+        StubGateway xhs = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("mode", "xiaohongshu", "topic", "秋日书单"), withSettings, xhs);
+        assertThat(xhs.last.prompt()).contains("正文约 900 字");
+    }
+
+    @Test
+    void explicitNodeLengthOverridesCanvasSettings() {
+        ExecutionContext withSettings = new ExecutionContext("t-1", 1L, 1L,
+                Map.of(CopyWriteNodeExecutor.SETTING_WECHAT_LENGTH, 2600));
+        StubGateway gateway = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "T", "length", 800), withSettings, gateway);
+        assertThat(gateway.last.prompt()).contains("正文约 800 字").doesNotContain("正文约 2600 字");
+    }
+
+    @Test
+    void builtinDefaultsAre2000And1000() {
+        StubGateway wechat = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "T"), CTX, wechat);
+        assertThat(wechat.last.prompt()).contains("正文约 2000 字");
+
+        StubGateway xhs = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("mode", "xhs", "topic", "T"), CTX, xhs);
+        assertThat(xhs.last.prompt()).contains("正文约 1000 字");
+    }
+
+    @Test
+    void lengthIsClampedIntoSafeRange() {
+        StubGateway tooLong = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "T", "length", 999999), CTX, tooLong);
+        assertThat(tooLong.last.prompt()).contains("正文约 10000 字");
+
+        StubGateway tooShort = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "T", "length", 50), CTX, tooShort);
+        assertThat(tooShort.last.prompt()).contains("正文约 100 字");
+
+        // 画布输入框清空后是空串：不算显式覆盖，照常走 settings/默认
+        StubGateway cleared = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("topic", "T", "length", ""), CTX, cleared);
+        assertThat(cleared.last.prompt()).contains("正文约 2000 字");
     }
 
     @Test
@@ -293,6 +352,9 @@ class CopyWriteNodeExecutorTest {
 
         assertThat(gateway.requests).hasSize(2);
         assertThat(gateway.requests.get(0).system()).contains("内容研究员");
+        // 蒸成"按原序罗列的要点"等于把原文骨架交给写作者，所以清单必须打乱顺序并标出素材形状
+        assertThat(gateway.requests.get(0).system()).contains("条目数量与排列顺序")
+                .contains("素材的形状");
         assertThat(gateway.requests.get(0).temperature()).isEqualTo(0.2d); // 蒸馏要收敛，不吃创作的 temperature
         assertThat(gateway.requests.get(0).prompt()).contains("不要替公司翻译情绪");
         // 创作这一步只能看到要点清单：看不到原句，物理上就抄不动原句

@@ -21,7 +21,8 @@ import java.util.function.Supplier;
  * params: mode(wechat|xiaohongshu，默认 wechat) / topic(必填或从上游热点取)
  *         material(可选素材文本；缺省时自动汇总上游 hotspot.fetch / article.extract 输出)
  *         distill(默认 true：素材 ≥800 字时先花一次调用蒸成要点清单再创作，杜绝整句照抄；false=直接用原素材)
- *         audience(目标读者) / tone(语气，如"克制、专业、有画面感") / length(目标字数，wechat 默认 1500、xhs 默认 600)
+ *         audience(目标读者) / tone(语气，如"克制、专业、有画面感")
+ *         length(目标字数；缺省时取画布设置 wechatLength/xhsLength，再缺省兜底 wechat 2000、xhs 1000)
  *         model(覆盖默认模型) / temperature(默认 0.8，创作需要发散)
  * 输出: title / subtitle / digest / body / hashtags[] / keyPoints[] / coverLines[] / wordCount /
  *       materialDistilled / mode / model / totalTokens / parseFallback
@@ -38,6 +39,11 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
     public static final String TYPE = "copy.write";
     public static final String MODE_WECHAT = "wechat";
     public static final String MODE_XHS = "xiaohongshu";
+    /** 画布设置（DSL 根 settings）里的字数组键：生成字数在画布配置时就定，节点参数只做单点覆盖。 */
+    public static final String SETTING_WECHAT_LENGTH = "wechatLength";
+    public static final String SETTING_XHS_LENGTH = "xhsLength";
+    static final int DEFAULT_WECHAT_LENGTH = 2000;
+    static final int DEFAULT_XHS_LENGTH = 1000;
     private static final int MAX_MATERIAL_CHARS = 12000;
     /** 素材超过这个长度就先蒸馏成要点：够短就不可能成段照抄，也就不必多花一次调用。 */
     private static final int DISTILL_MIN_CHARS = 800;
@@ -78,7 +84,7 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
                     "copy.write 缺少主题：请设置 topic 参数，或让 hotspot.fetch / article.extract 作为上游");
         }
         String material = resolveMaterial(input);
-        int length = asInt(input.param("length"), MODE_WECHAT.equals(mode) ? 1500 : 600);
+        int length = resolveLength(input, ctx, mode);
         // 反抄袭前置：素材给得越整，模型越容易贴着原句改写（实测整篇原文喂进去，出来的稿子会复述原文小标题和例句）。
         // 先蒸成"要点清单"，让写作这一步在物理上无整句可抄；蒸馏失败就抛，不悄悄退回原文素材继续写。
         boolean materialDistilled = false;
@@ -143,6 +149,38 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
                     : "模型未按【标记】分节，已把整段回复作为正文交付（标题留空，需人工补）");
         }
         return NodeOutput.ok(data);
+    }
+
+    /**
+     * 字数优先级：节点显式 length > 画布设置（wechatLength/xhsLength）> 内置默认（wechat 2000、xhs 1000）。
+     * 画布设置是"生成时应该限制的字数"，节点参数只是单点覆盖；两种来源都过一遍 MIN/MAX 夹取，
+     * 防止手滑填 0 或十万把链路变成烧 token 的复读机。
+     */
+    private static final int MIN_LENGTH = 100;
+    private static final int MAX_LENGTH = 10_000;
+
+    static int resolveLength(NodeInput input, ExecutionContext ctx, String mode) {
+        boolean wechat = MODE_WECHAT.equals(mode);
+        int fallback = wechat ? DEFAULT_WECHAT_LENGTH : DEFAULT_XHS_LENGTH;
+        Object explicit = input.param("length");
+        if (explicit != null) {
+            int parsed = asInt(explicit, -1);
+            if (parsed > 0) {
+                return clampLength(parsed);
+            }
+        }
+        Object setting = ctx.setting(wechat ? SETTING_WECHAT_LENGTH : SETTING_XHS_LENGTH);
+        if (setting != null) {
+            int parsed = asInt(setting, -1);
+            if (parsed > 0) {
+                return clampLength(parsed);
+            }
+        }
+        return fallback;
+    }
+
+    private static int clampLength(int v) {
+        return Math.max(MIN_LENGTH, Math.min(v, MAX_LENGTH));
     }
 
     private static String buildUserPrompt(String mode, String topic, String material, NodeInput input, int length) {

@@ -2,7 +2,8 @@
  * 画布节点目录：label/颜色/默认参数/表单字段。
  * 参数名与 node-adapters 中的 paramAsString 严格对齐；未列出的参数走"高级 JSON"编辑。
  * 这里刻意是静态目录而不是后端 schema 接口：节点集是编译期固定的，静态度量更小、离线可用；
- * 新增节点时必须同步这里，`nodeCatalog.test.js` 之外由 P4 画布 E2E 兜底。
+ * 新增节点时必须同步这里，并跑 `node web/agent-flow-web/scripts/check-catalog-params.mjs`
+ * 静态核对字段名是否真的对得上 node-adapters 的参数；P4 画布 E2E 兜底渲染与运行。
  */
 export const NODE_CATALOG = [
   {
@@ -34,11 +35,11 @@ export const NODE_CATALOG = [
     label: 'HTTP 采集',
     group: '采集',
     color: '#38bdf8',
-    desc: '通用 GET/POST 取数，支持 CSS 选择器抽字段',
-    defaults: { url: '', method: 'GET', cssSelector: '', attr: '' },
+    desc: '网页取数（只支持 GET），可用 CSS 选择器抽列表',
+    defaults: { url: '', maxChars: 8000, cssSelector: '', attr: '' },
     fields: [
       { key: 'url', label: 'URL', type: 'text' },
-      { key: 'method', label: '方法', type: 'select', options: ['GET', 'POST'] },
+      { key: 'maxChars', label: '正文截断字数', type: 'number' },
       { key: 'cssSelector', label: 'CSS 选择器（可选）', type: 'text' },
       { key: 'attr', label: '取属性（可选）', type: 'text', placeholder: 'href / text' },
     ],
@@ -61,14 +62,34 @@ export const NODE_CATALOG = [
     label: '文案成稿',
     group: '创作',
     color: '#a855f7',
-    desc: '按公众号/小红书口径产出标题、正文、标签',
-    defaults: { mode: 'wechat', topic: '', audience: '', tone: '', extra: '', model: 'qwen-plus' },
+    desc: '按公众号/小红书口径产出标题、正文、标签；长素材先蒸馏再写，防整段照抄',
+    // 刻意不给 length 默认值：留空才会走"画布设置"里的公众号/小红书字数；节点填了才算单点覆盖
+    defaults: { mode: 'wechat', topic: '', audience: '', tone: '', extra: '', distill: 'true', model: 'qwen-plus' },
     fields: [
       { key: 'mode', label: '渠道', type: 'select', options: ['wechat', 'xiaohongshu'] },
       { key: 'topic', label: '选题', type: 'text' },
+      { key: 'material', label: '素材（缺省取上游）', type: 'textarea' },
       { key: 'audience', label: '目标读者', type: 'text' },
       { key: 'tone', label: '语气风格', type: 'text' },
       { key: 'extra', label: '补充要求', type: 'textarea' },
+      { key: 'length', label: '目标字数（留空=画布设置）', type: 'number' },
+      { key: 'distill', label: '先蒸馏素材', type: 'select', options: ['true', 'false'] },
+      { key: 'model', label: '模型', type: 'text' },
+    ],
+  },
+  {
+    type: 'copy.originality',
+    label: '原创度校验',
+    group: '创作',
+    color: '#0d9488',
+    desc: '生成稿 vs 原文相似度（0-100，越低越安全）；超阈值默认 degraded，strict=true 直接失败',
+    defaults: { maxScore: 25, strict: 'false', useLlm: 'true', model: 'qwen-plus' },
+    fields: [
+      { key: 'source', label: '参考原文（缺省取 article.extract）', type: 'textarea' },
+      { key: 'generated', label: '生成稿（缺省取 copy.write 正文）', type: 'textarea' },
+      { key: 'maxScore', label: '允许的最高相似度', type: 'number' },
+      { key: 'strict', label: '超阈值即失败', type: 'select', options: ['false', 'true'] },
+      { key: 'useLlm', label: '叠加模型评分', type: 'select', options: ['true', 'false'] },
       { key: 'model', label: '模型', type: 'text' },
     ],
   },
@@ -77,11 +98,12 @@ export const NODE_CATALOG = [
     label: '封面主图',
     group: '创作',
     color: '#db2777',
-    desc: '按比例出封面，失败降级为无图（不阻断发布）',
-    defaults: { ratio: '3:4', kind: 'cover', prompt: '', topic: '', style: '', model: 'wanx2.1-t2i-turbo' },
+    desc: '按比例出封面/配图；kind=illustration 的图会被 wechat.draft 传进正文',
+    defaults: { ratio: '3:4', kind: 'cover', n: 1, prompt: '', topic: '', style: '', model: 'wanx2.1-t2i-turbo' },
     fields: [
       { key: 'ratio', label: '比例', type: 'text', placeholder: '3:4 / 16:9 / 1:1' },
-      { key: 'kind', label: '用途', type: 'select', options: ['cover', 'inline'] },
+      { key: 'kind', label: '用途', type: 'select', options: ['cover', 'illustration'] },
+      { key: 'n', label: '张数（1~4）', type: 'number' },
       { key: 'prompt', label: '画面提示词', type: 'textarea' },
       { key: 'topic', label: '主题（缺省取上游）', type: 'text' },
       { key: 'style', label: '风格', type: 'text' },
@@ -106,12 +128,13 @@ export const NODE_CATALOG = [
     label: '成品归档',
     group: '发布',
     color: '#16a34a',
-    desc: 'article.md/note.txt + meta.json + assets 落成品库',
-    defaults: { kind: 'article', title: '', body: '' },
+    desc: '正文按 {标题}-{yyyyMMddHHmmss}.md 落成品库，重跑不覆盖旧稿',
+    defaults: { kind: 'article', title: '', body: '', slug: '' },
     fields: [
       { key: 'kind', label: '成品类型', type: 'select', options: ['article', 'note'] },
       { key: 'title', label: '标题（缺省取上游）', type: 'text' },
       { key: 'body', label: '正文（缺省取上游）', type: 'textarea' },
+      { key: 'slug', label: '文件名前缀（缺省取标题）', type: 'text' },
     ],
   },
   {
@@ -120,14 +143,13 @@ export const NODE_CATALOG = [
     group: '发布',
     color: '#e11d48',
     desc: '默认只产出图文包；配置 endpoint 才外发',
-    defaults: { title: '', body: '', tags: '', endpoint: '', accessToken: '', credentialId: '' },
+    defaults: { title: '', body: '', hashtags: '', endpoint: '', accessToken: '' },
     fields: [
       { key: 'title', label: '标题', type: 'text' },
       { key: 'body', label: '正文', type: 'textarea' },
-      { key: 'tags', label: '标签（逗号分隔）', type: 'text' },
+      { key: 'hashtags', label: '标签（逗号分隔）', type: 'text' },
       { key: 'endpoint', label: '外发端点（可选）', type: 'text' },
       { key: 'accessToken', label: 'Access Token（可选）', type: 'text' },
-      { key: 'credentialId', label: '凭证 ID（可选）', type: 'text' },
     ],
   },
   {
@@ -135,14 +157,15 @@ export const NODE_CATALOG = [
     label: '公众号草稿',
     group: '发布',
     color: '#059669',
-    desc: 'token → 封面素材 → draft/add；失败不降级',
-    defaults: { title: '', content: '', digest: '', thumbUrl: '', author: '', credentialId: '' },
+    desc: 'token → 封面素材 → 正文配图 → 内联样式排版 → draft/add；失败不降级',
+    defaults: { title: '', content: '', digest: '', thumbUrl: '', author: '', theme: 'moss', credentialId: '' },
     fields: [
       { key: 'title', label: '标题', type: 'text' },
       { key: 'content', label: '正文', type: 'textarea' },
       { key: 'digest', label: '摘要', type: 'text' },
       { key: 'thumbUrl', label: '封面图 URL', type: 'text' },
       { key: 'author', label: '作者', type: 'text' },
+      { key: 'theme', label: '排版配色', type: 'select', options: ['moss', 'azure', 'amber', 'ink'] },
       { key: 'credentialId', label: '凭证 ID（可选）', type: 'text' },
     ],
   },

@@ -142,7 +142,7 @@ public class WorkflowEngine {
             AtomicBoolean anyDegraded, AtomicBoolean aborted) {
         NodeDef nodeDef = def.nodeById(nodeId);
         NodeExecutor executor = registry.require(nodeDef.type());
-        ExecutionContext ctx = new ExecutionContext(traceId, workflowId, executionId);
+        ExecutionContext ctx = new ExecutionContext(traceId, workflowId, executionId, def.settings());
         Map<String, Object> params = nodeDef.params() == null ? Map.of() : nodeDef.params();
         NodeInput input = new NodeInput(params, Map.copyOf(upstream));
 

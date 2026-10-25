@@ -58,9 +58,25 @@ const canvasEl = ref(null)
 const lf = ref(null)
 let disposed = false
 
+const DEFAULT_WECHAT_LENGTH = 2000
+const DEFAULT_XHS_LENGTH = 1000
+const MIN_LENGTH = 100
+const MAX_LENGTH = 10000
+
+function clampLength(v, fallback) {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.max(MIN_LENGTH, Math.min(MAX_LENGTH, Math.round(n)))
+}
+
 const workflowId = ref(props.workflowId)
 const name = ref(props.initialDsl?.name || '未命名工作流')
 const cron = ref(props.initialDsl?.trigger?.type === 'cron' ? props.initialDsl.trigger.expression || '' : '')
+const canvasSettings = ref({
+  wechatLength: clampLength(props.initialDsl?.settings?.wechatLength, DEFAULT_WECHAT_LENGTH),
+  xhsLength: clampLength(props.initialDsl?.settings?.xhsLength, DEFAULT_XHS_LENGTH),
+})
+const showSettings = ref(false)
 const nextFireAt = ref('')
 const selected = ref(null)
 const showRaw = ref(false)
@@ -171,6 +187,7 @@ onBeforeUnmount(() => {
 function selectNode(id) {
   const model = lf.value?.getNodeModelById(id)
   if (!model) return
+  showSettings.value = false
   const p = JSON.parse(JSON.stringify(model.properties || {}))
   selected.value = {
     id,
@@ -226,6 +243,19 @@ function removeSelected() {
   flash(`节点 ${id} 已删除`)
 }
 
+function toggleSettings() {
+  showSettings.value = !showSettings.value
+  if (showSettings.value) selected.value = null
+}
+
+function applyCanvasSettings() {
+  canvasSettings.value = {
+    wechatLength: clampLength(canvasSettings.value.wechatLength, DEFAULT_WECHAT_LENGTH),
+    xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH),
+  }
+  flash('画布设置已更新，点"保存"生效')
+}
+
 function toDsl() {
   const graph = lf.value.getGraphData()
   return {
@@ -240,6 +270,10 @@ function toDsl() {
     })),
     edges: graph.edges.map((e) => ({ from: e.sourceNodeId, to: e.targetNodeId })),
     layout: Object.fromEntries(graph.nodes.map((n) => [n.id, { x: Math.round(n.x), y: Math.round(n.y) }])),
+    settings: {
+      wechatLength: clampLength(canvasSettings.value.wechatLength, DEFAULT_WECHAT_LENGTH),
+      xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH),
+    },
   }
 }
 
@@ -417,6 +451,7 @@ const groups = computed(() => {
       <input v-model="name" class="workflow-name" aria-label="工作流名称" />
       <span class="toolbar-spacer"></span>
       <button class="ghost-btn" :disabled="running" @click="loadTemplate">载入示例</button>
+      <button class="ghost-btn" :class="{ active: showSettings }" :disabled="running" @click="toggleSettings">画布设置</button>
       <button class="ghost-btn" :disabled="saveState === 'saving'" @click="save">
         {{ saveState === 'saving' ? '保存中…' : '保存' }}
       </button>
@@ -446,6 +481,29 @@ const groups = computed(() => {
       </aside>
 
       <div ref="canvasEl" class="lf-canvas"></div>
+
+      <aside v-if="showSettings && !selected" class="inspector">
+        <div class="inspector-head">
+          <div>
+            <div class="inspector-title">画布设置</div>
+            <div class="inspector-sub">整条链路生成文案的默认字数</div>
+          </div>
+          <button class="icon-btn" title="关闭" @click="showSettings = false">×</button>
+        </div>
+        <div class="inspector-form">
+          <p class="palette-tip">
+            文案成稿节点未单独设置"目标字数"时，按这里的渠道默认字数生成（100~10000）。
+          </p>
+          <label>
+            <span>公众号文章字数</span>
+            <input v-model.number="canvasSettings.wechatLength" type="number" :min="100" :max="10000" @change="applyCanvasSettings" />
+          </label>
+          <label>
+            <span>小红书文案字数</span>
+            <input v-model.number="canvasSettings.xhsLength" type="number" :min="100" :max="10000" @change="applyCanvasSettings" />
+          </label>
+        </div>
+      </aside>
 
       <aside v-if="selected" class="inspector">
         <div class="inspector-head">
