@@ -195,12 +195,27 @@ class CopyWriteNodeExecutorTest {
                         CopyWriteNodeExecutor.SETTING_XHS_LENGTH, 900));
 
         StubGateway wechat = new StubGateway(STRUCTURED);
-        runWithCtx(Map.of("topic", "深度工作"), withSettings, wechat);
+        NodeOutput wechatOut = runWithCtx(Map.of("topic", "深度工作"), withSettings, wechat);
         assertThat(wechat.last.prompt()).contains("正文约 2600 字");
+        // 目标字数要能在执行输出里看见，否则"画布设了 2600 字"事后无从核对
+        assertThat(wechatOut.data()).containsEntry("targetWordCount", 2600);
 
         StubGateway xhs = new StubGateway(STRUCTURED);
         runWithCtx(Map.of("mode", "xiaohongshu", "topic", "秋日书单"), withSettings, xhs);
         assertThat(xhs.last.prompt()).contains("正文约 900 字");
+    }
+
+    /** 模型写不够字数不判失败（字数只是参考口径），但差距必须留在输出里，不能静默交付。 */
+    @Test
+    void shortBodyAgainstLargeTargetIsReportedNotSilentlyAccepted() {
+        StubGateway stub = new StubGateway(STRUCTURED);
+        NodeOutput out = runWithCtx(Map.of("topic", "T", "length", 8000), CTX, stub);
+        assertThat(out.data()).containsEntry("targetWordCount", 8000).containsKey("lengthNote");
+
+        StubGateway enough = new StubGateway(
+                STRUCTURED.replace("第一段：问题在哪。", "一、把周报改成输入物。".repeat(30)));
+        NodeOutput ok = runWithCtx(Map.of("topic", "T", "length", 100), CTX, enough);
+        assertThat(ok.data()).containsEntry("targetWordCount", 100).doesNotContainKey("lengthNote");
     }
 
     @Test

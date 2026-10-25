@@ -25,6 +25,7 @@ import java.util.function.Supplier;
  *         length(目标字数；缺省时取画布设置 wechatLength/xhsLength，再缺省兜底 wechat 2000、xhs 1000)
  *         model(覆盖默认模型) / temperature(默认 0.8，创作需要发散)
  * 输出: title / subtitle / digest / body / hashtags[] / keyPoints[] / coverLines[] / wordCount /
+ *       targetWordCount / lengthNote(字数远不达标时才有) /
  *       materialDistilled / mode / model / totalTokens / parseFallback
  *
  * 四件套口径：
@@ -136,7 +137,15 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
         data.put("hashtags", listField(sections.get("标签"), true));
         data.put("keyPoints", listField(sections.get("金句"), false));
         data.put("coverLines", listField(sections.get("封面文案"), false));
-        data.put("wordCount", countWords(body));
+        int actualWords = countWords(body);
+        data.put("wordCount", actualWords);
+        data.put("targetWordCount", length);
+        // 字数是"参考+夹取"，不是硬截断：模型给短了不判失败，但要把差距写进输出，
+        // 否则画布上设的 2000 字只活在提示词里，时间线上看不出到底写没写够。
+        if (actualWords < length / 2) {
+            data.put("lengthNote", "正文实际 " + actualWords + " 字，不到本次要求 " + length
+                    + " 字的一半：模型没写够，可补素材或重跑该节点（不自动截断/补写）");
+        }
         data.put("materialDistilled", materialDistilled);
         data.put("parseFallback", parseFallback);
         data.put("model", reply.modelUsed() == null ? "default" : reply.modelUsed());
