@@ -497,6 +497,10 @@ const groups = computed(() => {
             文案成稿节点未单独设置"目标字数"时，按这里的渠道默认字数生成。公众号 100~10000；
             小红书正文有 1000 字平台硬限，超出会被截断，所以最高只能填 1000。
           </p>
+          <p class="palette-tip">
+            注意优先级：节点上单独填过"目标字数"的以节点为准，画布值只管留空的节点。
+            老流水线里 copy.write 曾默认带 1500 字，要让这里生效就把那个字段清空。
+          </p>
           <label>
             <span>公众号文章字数</span>
             <input v-model.number="canvasSettings.wechatLength" type="number" :min="100" :max="10000" @change="applyCanvasSettings" />
