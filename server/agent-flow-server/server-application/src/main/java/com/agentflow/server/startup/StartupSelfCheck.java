@@ -1,6 +1,10 @@
 package com.agentflow.server.startup;
 
 import com.agentflow.common.security.AesGcmCipher;
+import com.agentflow.nodes.image.DashScopeImageClient;
+import com.agentflow.nodes.image.ReferenceStyleAnalyzer;
+import com.agentflow.nodes.llm.LlmGateway;
+import com.agentflow.nodes.llm.SpringAiLlmGateway;
 import com.agentflow.server.config.ContentProperties;
 import com.agentflow.server.config.NodeConfigProperties;
 import com.agentflow.server.security.SecurityProperties;
@@ -31,15 +35,18 @@ public class StartupSelfCheck implements ApplicationRunner {
     private final ContentProperties contentProps;
     private final NodeConfigProperties nodeProps;
     private final ObjectProvider<AesGcmCipher> cipherProvider;
+    private final ObjectProvider<LlmGateway> gatewayProvider;
 
     public StartupSelfCheck(Environment env, SecurityProperties securityProps,
                             ContentProperties contentProps, NodeConfigProperties nodeProps,
-                            ObjectProvider<AesGcmCipher> cipherProvider) {
+                            ObjectProvider<AesGcmCipher> cipherProvider,
+                            ObjectProvider<LlmGateway> gatewayProvider) {
         this.env = env;
         this.securityProps = securityProps;
         this.contentProps = contentProps;
         this.nodeProps = nodeProps;
         this.cipherProvider = cipherProvider;
+        this.gatewayProvider = gatewayProvider;
     }
 
     @Override
@@ -64,7 +71,36 @@ public class StartupSelfCheck implements ApplicationRunner {
                 securityProps.rateLimitAuthPerMinute(), securityProps.trustForwardedFor());
         log.info("llm api-key present          : {}", !nodeProps.llm().apiKey().isBlank());
         log.info("image api-key present        : {}", !nodeProps.image().apiKey().isBlank());
+        // 三个上游地址必须打出来：包月/按量两类 key 各自只在一个域名有效，
+        // "配置里写的域名"和"实际发出去的 URL"不一致是这类问题唯一的可查证据（此处打后者）。
+        log.info("llm endpoint                 : {}", llmEndpoint());
+        String imageBase = imageBaseUrl();
+        log.info("image endpoint               : {}{}", imageBase, DashScopeImageClient.SUBMIT_PATH);
+        log.info("vision endpoint              : {}{}", imageBase, ReferenceStyleAnalyzer.MULTIMODAL_PATH);
         log.info("content library dir          : {}", checkLibrary());
+    }
+
+    /** 网关缺席（无 key）时打"网关未装配"，比打一个假 URL 诚实。 */
+    private String llmEndpoint() {
+        LlmGateway gateway = gatewayProvider.getIfAvailable();
+        if (gateway == null) {
+            return "(llm 网关未装配：agentflow.nodes.llm.api-key 为空)";
+        }
+        String endpoint = gateway.endpoint();
+        return endpoint.isBlank() ? "(实现未提供 endpoint，默认 " + SpringAiLlmGateway.DEFAULT_BASE_URL + ")" : endpoint;
+    }
+
+    private String imageBaseUrl() {
+        String base = nodeProps.image().baseUrl();
+        return base == null || base.isBlank() ? "https://dashscope.aliyuncs.com" : trimTrailingSlash(base);
+    }
+
+    private static String trimTrailingSlash(String url) {
+        String u = url.trim();
+        while (u.endsWith("/")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        return u;
     }
 
     /**

@@ -20,7 +20,7 @@ spring:
     # 默认值指向的是 PG 本机实例，不是 H2/文件库，所以"本地跑通=线上跑通"这条口径不受影响。
     url: ${PG_DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
     username: ${PG_DB_USER:agentflow}
-    password: ${PG_DB_PASSWORD:}
+    password: ${PG_DB_PASSWORD:bGAqoJ5ulXzIRV2er4eXKQ0U}
     # 不写 driver-class-name：交给 Spring 按 URL 前缀推断（jdbc:postgresql→PG 驱动）。
     # 写死会把"只覆盖 spring.datasource.url 的测试类"一起带走——它们连的是 H2。
     hikari:
@@ -69,11 +69,14 @@ agentflow:
     # 凭证全部 env 注入（默认空串）：空凭证不阻塞启动，节点照常注册；执行时报不可重试的配置错误
     # 真实 key 需用户自行申请，见 docs/TOOLS-CHECKLIST.md
     llm:
-      api-key: ${AI_API_KEY:${BAILIAN_API_KEY:}}   # AI_API_KEY 为统一入口；BAILIAN_API_KEY 保留兼容
-      default-model: qwen-plus        # 节点可用 params.model 覆盖（多模型可配置口径）
+      api-key: ${AI_API_KEY1:${AI_CHAT_API_KEY:}}   # 本机按量 key 在 AI_API_KEY1；AI_CHAT_API_KEY 是显式指名的一路
+      default-model: ${AI_CHAT_MODEL:qwen-plus}        # 节点可用 params.model 覆盖（多模型可配置口径）
+      # 只填 host：spring-ai-alibaba 的 DashScopeApi 走原生协议，path 固定 /api/v1/services/aigc/text-generation/generation。
+      # 填成 …/compatible-mode 会拼成 /compatible-mode/api/v1/… 直接 404（那是 OpenAI 兼容协议的前缀，不是这个 SDK 用的）。
+      base-url: ${AI_CHAT_BASE_URL:https://dashscope.aliyuncs.com}
     image:
-      api-key: ${AI_API_KEY:${BAILIAN_API_KEY:}}   # 万相与 LLM 同源（DashScope）
-      base-url: https://dashscope.aliyuncs.com
+      api-key: ${AI_API_KEY1:${AI_IMAGE_API_KEY:}}   # 万相与 LLM 同源（DashScope）
+      base-url: ${AI_IMAGE_BASE_URL:https://dashscope.aliyuncs.com}
     wechat:
       # WX_API_APPID/WX_API_SECRET 是本地 shell 里的名字，WECHAT_APPID/WECHAT_SECRET 是容器 *_FILE secret 落地的名字；
       # 两条都读，前者优先。任一为空时 wechat.draft 节点直接 A0400，不会拿空凭证去打微信接口。

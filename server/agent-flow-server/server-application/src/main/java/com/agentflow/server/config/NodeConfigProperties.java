@@ -10,7 +10,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "agentflow.nodes")
 public record NodeConfigProperties(Llm llm, Image image, Wechat wechat) {
 
-    public record Llm(String apiKey, String defaultModel) {
+    /**
+     * baseUrl 只填 host（如 https://dashscope.aliyuncs.com）：SDK 的协议 path 是固定的，
+     * 带 /compatible-mode 之类后缀会拼成 404。空=用各客户端内置默认。
+     */
+    public record Llm(String apiKey, String defaultModel, String baseUrl) {
     }
 
     public record Image(String apiKey, String baseUrl) {

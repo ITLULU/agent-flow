@@ -28,25 +28,63 @@ import org.springframework.ai.model.ModelResponse;
  */
 public class SpringAiLlmGateway implements LlmGateway {
 
+    /** 百炼原生协议公网入口（与 spring-ai-alibaba 的 DEFAULT_BASE_URL 同值，写死在此处是为了能被 env 覆盖时仍能回显）。 */
+    public static final String DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com";
+
     private final ChatModel chatModel;
     private final String defaultModel;
+    private final String baseUrl;
 
-    /** 生产构造：直连 DashScope。只依赖 core 构件，不走 autoconfigure（无 key 启动炸的防线）。 */
+    /** SDK 固定的原生协议路径：base-url 只换 host 前缀，这段 path 改不了（compatible-mode 那套 OpenAI path 不走这里）。 */
+    public static final String CHAT_PATH = "/api/v1/services/aigc/text-generation/generation";
+
+    /** 生产构造：直连 DashScope 官方域名。只依赖 core 构件，不走 autoconfigure（无 key 启动炸的防线）。 */
     public SpringAiLlmGateway(String apiKey, String defaultModel) {
-        this(buildDashScope(apiKey, defaultModel), defaultModel);
+        this(apiKey, defaultModel, DEFAULT_BASE_URL);
+    }
+
+    /**
+     * @param baseUrl 空则用 {@value #DEFAULT_BASE_URL}。**只能填 host**（如 https://dashscope.aliyuncs.com、
+     *                https://token-plan.cn-beijing.maas.aliyuncs.com），带 path 后缀会拼成 404 的地址。
+     */
+    public SpringAiLlmGateway(String apiKey, String defaultModel, String baseUrl) {
+        this(buildDashScope(apiKey, defaultModel, baseUrl), defaultModel,
+                baseUrl == null || baseUrl.isBlank() ? DEFAULT_BASE_URL : trimTrailingSlash(baseUrl));
     }
 
     /** 测试/自定义 ChatModel 注入口子（如 openai-compatible 端点）。 */
     public SpringAiLlmGateway(ChatModel chatModel, String defaultModel) {
-        this.chatModel = chatModel;
-        this.defaultModel = defaultModel;
+        this(chatModel, defaultModel, DEFAULT_BASE_URL);
     }
 
-    private static ChatModel buildDashScope(String apiKey, String defaultModel) {
-        DashScopeApi api = DashScopeApi.builder().apiKey(apiKey).build();
+    public SpringAiLlmGateway(ChatModel chatModel, String defaultModel, String baseUrl) {
+        this.chatModel = chatModel;
+        this.defaultModel = defaultModel;
+        this.baseUrl = baseUrl == null || baseUrl.isBlank() ? DEFAULT_BASE_URL : trimTrailingSlash(baseUrl);
+    }
+
+    /** 启动自检用它回显"到底往哪个 URL 发请求"——排查 key/域名不匹配时，这条比配置表可信。 */
+    @Override
+    public String endpoint() {
+        return baseUrl + CHAT_PATH;
+    }
+
+    private static ChatModel buildDashScope(String apiKey, String defaultModel, String baseUrl) {
+        DashScopeApi.Builder builder = DashScopeApi.builder().apiKey(apiKey);
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            builder.baseUrl(trimTrailingSlash(baseUrl));
+        }
         DashScopeChatOptions options = new DashScopeChatOptions();
         options.setModel(defaultModel);
-        return DashScopeChatModel.builder().dashScopeApi(api).defaultOptions(options).build();
+        return DashScopeChatModel.builder().dashScopeApi(builder.build()).defaultOptions(options).build();
+    }
+
+    private static String trimTrailingSlash(String url) {
+        String u = url.trim();
+        while (u.endsWith("/")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        return u;
     }
 
     @Override

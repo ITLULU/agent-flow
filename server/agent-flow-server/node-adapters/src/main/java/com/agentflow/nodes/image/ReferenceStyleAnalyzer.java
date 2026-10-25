@@ -24,7 +24,7 @@ import java.util.Map;
  */
 public class ReferenceStyleAnalyzer {
 
-    private static final String MULTIMODAL_PATH = "/api/v1/services/aigc/multimodal-generation/generation";
+    public static final String MULTIMODAL_PATH = "/api/v1/services/aigc/multimodal-generation/generation";
     private static final String DEFAULT_MODEL = "qwen-vl-max";
 
     /** 风格维度的展示顺序与中文名（LinkedHashMap：顺序要稳定，前端按它摆卡片，API 回显也按它排）。 */

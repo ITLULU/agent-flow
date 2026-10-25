@@ -46,7 +46,7 @@ public class NodesConfig {
             return null;
         }
         String defaultModel = blank(props.llm().defaultModel()) ? "qwen-plus" : props.llm().defaultModel();
-        return new SpringAiLlmGateway(props.llm().apiKey(), defaultModel);
+        return new SpringAiLlmGateway(props.llm().apiKey(), defaultModel, props.llm().baseUrl());
     }
 
     @Bean

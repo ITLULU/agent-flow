@@ -15,8 +15,14 @@ import java.util.List;
  */
 public class DashScopeImageClient {
 
-    private static final String SUBMIT_PATH = "/api/v1/services/aigc/text2image/image-synthesis";
+    public static final String SUBMIT_PATH = "/api/v1/services/aigc/text2image/image-synthesis";
     private static final String TASK_PATH = "/api/v1/tasks/";
+    static final String DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com";
+
+    /** 供启动自检回显"请求打到哪个地址"（host + 原生异步提交 path，不含 key）。 */
+    public String endpoint() {
+        return baseUrl + SUBMIT_PATH;
+    }
 
     private final HttpJson http;
     private final String apiKey;

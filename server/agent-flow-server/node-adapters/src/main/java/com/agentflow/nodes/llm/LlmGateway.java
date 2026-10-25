@@ -29,4 +29,12 @@ public interface LlmGateway {
     }
 
     Reply chat(Request request);
+
+    /**
+     * 实际请求地址（host+path），供启动自检/日志回显："这个 key 到底被发往哪个域名"是排查
+     * 包月/按量两类端点不匹配时唯一可信的信息。实现类不方便给出时返回空串。
+     */
+    default String endpoint() {
+        return "";
+    }
 }
