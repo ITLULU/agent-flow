@@ -23,14 +23,17 @@ public class UserRepository {
 
     public long insert(String username, String passwordHash, String role) {
         var keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        String actor = AuditActor.current();
         try {
             jdbc.update(connection -> {
                 PreparedStatement ps = connection.prepareStatement(
-                        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                        "INSERT INTO users (username, password_hash, role, creator, updater) VALUES (?, ?, ?, ?, ?)",
                         new String[]{"id"});
                 ps.setString(1, username);
                 ps.setString(2, passwordHash);
                 ps.setString(3, role);
+                ps.setString(4, actor);
+                ps.setString(5, actor);
                 return ps;
             }, keyHolder);
         } catch (DuplicateKeyException e) {

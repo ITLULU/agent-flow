@@ -19,7 +19,8 @@ public class WorkflowCatalog {
     public record StoredWorkflow(long id, String name, String dsl, long ownerId) {
     }
 
-    public record WorkflowSummary(long id, String name, int version, String createdAt, int nodeCount) {
+    public record WorkflowSummary(long id, String name, int version, String createdAt, String updateTime,
+                                  String creator, String updater, int nodeCount) {
     }
 
     private final JdbcTemplate jdbc;
@@ -44,13 +45,17 @@ public class WorkflowCatalog {
             throw new ApiException(ErrorCode.BAD_REQUEST, "DSL 序列化失败: " + e.getClass().getSimpleName());
         }
         var keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        String actor = AuditActor.current();
         jdbc.update(connection -> {
-            // 显式指定回列：H2 默认会把带 DEFAULT 的非空列（created_at）一并当生成键返回，getKey() 多键即炸
+            // 显式指定回列：H2 默认会把带 DEFAULT 的非空列（create_time）一并当生成键返回，getKey() 多键即炸
             PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO workflow (name, dsl, owner_id) VALUES (?, ?, ?)", new String[]{"id"});
+                    "INSERT INTO workflow (name, dsl, owner_id, creator, updater) VALUES (?, ?, ?, ?, ?)",
+                    new String[]{"id"});
             ps.setString(1, def.name() == null ? "unnamed" : def.name());
             ps.setString(2, dsl);
             ps.setLong(3, ownerId);
+            ps.setString(4, actor);
+            ps.setString(5, actor);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -67,7 +72,8 @@ public class WorkflowCatalog {
     /** ownerId=null 表示 admin 视角（全部）；列表只回摘要，DSL 原文留在库里。beforeId 为游标（不含）。 */
     public List<WorkflowSummary> list(Long ownerId, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
-                "SELECT id, name, version, CAST(created_at AS VARCHAR) AS created_at, dsl FROM workflow");
+                "SELECT id, name, version, CAST(create_time AS VARCHAR) AS created_at, "
+                        + "CAST(update_time AS VARCHAR) AS update_time, creator, updater, dsl FROM workflow");
         List<Object> args = new ArrayList<>();
         List<String> where = new ArrayList<>();
         if (ownerId != null) {
@@ -85,7 +91,8 @@ public class WorkflowCatalog {
         args.add(limit);
         return jdbc.query(sql.toString(), (rs, rowNum) -> new WorkflowSummary(
                 rs.getLong("id"), rs.getString("name"), rs.getInt("version"),
-                rs.getString("created_at"), countNodes(rs.getString("dsl"))), args.toArray());
+                rs.getString("created_at"), rs.getString("update_time"),
+                rs.getString("creator"), rs.getString("updater"), countNodes(rs.getString("dsl"))), args.toArray());
     }
 
     private int countNodes(String dsl) {
@@ -104,8 +111,9 @@ public class WorkflowCatalog {
         } catch (Exception e) {
             throw new ApiException(ErrorCode.BAD_REQUEST, "DSL 序列化失败: " + e.getClass().getSimpleName());
         }
-        int rows = jdbc.update("UPDATE workflow SET name = ?, dsl = ?, version = version + 1 WHERE id = ?",
-                def.name() == null ? "unnamed" : def.name(), dsl, id);
+        int rows = jdbc.update("UPDATE workflow SET name = ?, dsl = ?, version = version + 1, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                def.name() == null ? "unnamed" : def.name(), dsl, AuditActor.current(), id);
         if (rows == 0) {
             throw new ApiException(ErrorCode.NOT_FOUND, "workflow " + id);
         }

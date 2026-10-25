@@ -5,6 +5,7 @@ import com.agentflow.common.error.ErrorCode;
 import com.agentflow.common.trace.TraceIdUtils;
 import com.agentflow.engine.model.WorkflowDefinition;
 import com.agentflow.server.exec.ExecutionManager;
+import com.agentflow.server.persistence.AuditActor;
 import com.agentflow.server.persistence.WorkflowCatalog;
 import java.sql.Timestamp;
 import java.time.ZonedDateTime;
@@ -46,12 +47,14 @@ public class ScheduleService {
             if (next == null) {
                 throw new ApiException(ErrorCode.BAD_REQUEST, "cron 无未来触发点: " + cron);
             }
-            jdbc.update("UPDATE workflow SET schedule_cron = ?, schedule_enabled = TRUE, next_fire_at = ? WHERE id = ?",
-                    cron, Timestamp.from(next.toInstant()), workflowId);
+            jdbc.update("UPDATE workflow SET schedule_cron = ?, schedule_enabled = TRUE, next_fire_at = ?, "
+                            + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                    cron, Timestamp.from(next.toInstant()), AuditActor.current(), workflowId);
             return next.toString();
         }
-        jdbc.update("UPDATE workflow SET schedule_cron = NULL, schedule_enabled = FALSE, next_fire_at = NULL WHERE id = ?",
-                workflowId);
+        jdbc.update("UPDATE workflow SET schedule_cron = NULL, schedule_enabled = FALSE, next_fire_at = NULL, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                AuditActor.current(), workflowId);
         return null;
     }
 
@@ -103,8 +106,9 @@ public class ScheduleService {
                 continue;
             }
             int claimed = jdbc.update(
-                    "UPDATE workflow SET next_fire_at = ? WHERE id = ? AND next_fire_at = ?",
-                    Timestamp.from(next.toInstant()), row.id(), row.nextFireAt());
+                    "UPDATE workflow SET next_fire_at = ?, update_time = CURRENT_TIMESTAMP, updater = ? "
+                            + "WHERE id = ? AND next_fire_at = ?",
+                    Timestamp.from(next.toInstant()), AuditActor.current(), row.id(), row.nextFireAt());
             if (claimed == 0) {
                 continue; // 已被其它轮次/实例领走
             }
@@ -122,7 +126,8 @@ public class ScheduleService {
 
     private void setScheduleQuietly(long workflowId) {
         try {
-            jdbc.update("UPDATE workflow SET schedule_enabled = FALSE, next_fire_at = NULL WHERE id = ?", workflowId);
+            jdbc.update("UPDATE workflow SET schedule_enabled = FALSE, next_fire_at = NULL, "
+                    + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?", AuditActor.current(), workflowId);
         } catch (Exception e) {
             log.warn("停用调度失败 workflow={}", workflowId, e);
         }

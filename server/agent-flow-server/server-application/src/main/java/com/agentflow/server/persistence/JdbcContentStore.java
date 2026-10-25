@@ -76,18 +76,21 @@ public class JdbcContentStore implements ContentStore {
     @Override
     public long insert(long executionId, String kind, String title, String body, String metaJson) {
         long ownerId = ownerOf(executionId);
+        String actor = AuditActor.current();
         var keyHolder = new GeneratedKeyHolder();
         jdbc.update(connection -> {
-            // 显式回列：H2 会把带 DEFAULT 的 created_at 当生成键多路返回，getKey() 遇多键即炸（V1 期踩过的同款坑）
+            // 显式回列：H2 会把带 DEFAULT 的 create_time 当生成键多路返回，getKey() 遇多键即炸（V1 期踩过的同款坑）
             PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO artifact (execution_id, owner_id, kind, title, body, meta_json, dir) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, '')", new String[]{"id"});
+                    "INSERT INTO artifact (execution_id, owner_id, kind, title, body, meta_json, dir, creator, updater) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)", new String[]{"id"});
             ps.setLong(1, executionId);
             ps.setLong(2, ownerId);
             ps.setString(3, kind);
             ps.setString(4, truncate(title, 500));
             ps.setString(5, body);
             ps.setString(6, metaJson);
+            ps.setString(7, actor);
+            ps.setString(8, actor);
             return ps;
         }, keyHolder);
         Long id = keyHolder.getKey() == null ? null : keyHolder.getKey().longValue();
@@ -96,7 +99,8 @@ public class JdbcContentStore implements ContentStore {
         }
         Path dir = artifactPath(id);
         ensureDir(dir);
-        jdbc.update("UPDATE artifact SET dir = ? WHERE id = ?", dir.toString(), id);
+        jdbc.update("UPDATE artifact SET dir = ?, update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                dir.toString(), actor, id);
         return id;
     }
 
@@ -141,14 +145,17 @@ public class JdbcContentStore implements ContentStore {
 
     @Override
     public void markComplete(long artifactId) {
-        jdbc.update("UPDATE artifact SET file_state = 'complete', file_error = NULL WHERE id = ?", artifactId);
+        jdbc.update("UPDATE artifact SET file_state = 'complete', file_error = NULL, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                AuditActor.current(), artifactId);
         Counter.builder("agentflow.artifact.files").tag("state", "complete").register(registry).increment();
     }
 
     @Override
     public void markIncomplete(long artifactId, String reason) {
-        jdbc.update("UPDATE artifact SET file_state = 'incomplete', file_error = ? WHERE id = ?",
-                truncate(reason, 500), artifactId);
+        jdbc.update("UPDATE artifact SET file_state = 'incomplete', file_error = ?, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                truncate(reason, 500), AuditActor.current(), artifactId);
         Counter.builder("agentflow.artifact.files").tag("state", "incomplete").register(registry).increment();
     }
 
@@ -161,7 +168,7 @@ public class JdbcContentStore implements ContentStore {
     public Map<String, Object> find(long artifactId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
-                        + "sync_state, sync_error, sync_manifest, synced_at, created_at FROM artifact WHERE id = ?",
+                        + "sync_state, sync_error, sync_manifest, synced_at, create_time AS created_at FROM artifact WHERE id = ?",
                 artifactId);
         return rows.isEmpty() ? Map.of() : rows.get(0);
     }
@@ -217,7 +224,7 @@ public class JdbcContentStore implements ContentStore {
     /** 供 API 层列成品（节点不需要，故不进 ContentStore 端口，留在实现类上）。beforeId 为游标（不含）。 */
     public List<Map<String, Object>> list(long ownerId, String kind, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
-                "SELECT id, execution_id, kind, title, dir, file_state, created_at FROM artifact WHERE owner_id = ?");
+                "SELECT id, execution_id, kind, title, dir, file_state, create_time AS created_at FROM artifact WHERE owner_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(ownerId);
         if (kind != null && !kind.isBlank()) {
@@ -236,7 +243,7 @@ public class JdbcContentStore implements ContentStore {
     public Map<String, Object> detail(long artifactId, long ownerId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id, execution_id, owner_id, kind, title, body, meta_json, dir, file_state, file_error, "
-                        + "sync_state, sync_error, sync_manifest, synced_at, created_at "
+                        + "sync_state, sync_error, sync_manifest, synced_at, create_time AS created_at "
                         + "FROM artifact WHERE id = ? AND owner_id = ?", artifactId, ownerId);
         if (rows.isEmpty()) {
             // 非属主与不存在同口径回 404：避免成品 id 是否存在被探测（与 P3 workflow 归属隔离一致）
@@ -253,19 +260,21 @@ public class JdbcContentStore implements ContentStore {
      */
     public void markSynced(long artifactId, String manifestJson) {
         jdbc.update("UPDATE artifact SET sync_state = 'synced', sync_error = NULL, sync_manifest = ?, "
-                + "synced_at = CURRENT_TIMESTAMP WHERE id = ?", manifestJson, artifactId);
+                        + "synced_at = CURRENT_TIMESTAMP, update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                manifestJson, AuditActor.current(), artifactId);
     }
 
     /** 同步失败：只动 sync_* 三列。file_state 不能被同步结果改写，否则备份失败会伪装成丢稿。 */
     public void markSyncFailed(long artifactId, String reason) {
-        jdbc.update("UPDATE artifact SET sync_state = 'failed', sync_error = ? WHERE id = ?",
-                truncate(reason, 500), artifactId);
+        jdbc.update("UPDATE artifact SET sync_state = 'failed', sync_error = ?, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                truncate(reason, 500), AuditActor.current(), artifactId);
     }
 
     /** 待同步清单（扫实用）：本地已完整但远端还没有一套齐活副本的成品。 */
     public List<Map<String, Object>> pendingSync(long ownerId, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
-                "SELECT id, execution_id, kind, title, dir, file_state, sync_state, sync_error, synced_at, created_at "
+                "SELECT id, execution_id, kind, title, dir, file_state, sync_state, sync_error, synced_at, create_time AS created_at "
                         + "FROM artifact WHERE owner_id = ? AND file_state = 'complete' AND sync_state <> 'synced'");
         List<Object> args = new ArrayList<>();
         args.add(ownerId);
@@ -292,7 +301,7 @@ public class JdbcContentStore implements ContentStore {
      */
     public List<Map<String, Object>> incomplete(long ownerId, int limit, Long beforeId) {
         StringBuilder sql = new StringBuilder(
-                "SELECT id, execution_id, kind, title, dir, file_state, file_error, created_at FROM artifact "
+                "SELECT id, execution_id, kind, title, dir, file_state, file_error, create_time AS created_at FROM artifact "
                         + "WHERE owner_id = ? AND file_state <> 'complete'");
         List<Object> args = new ArrayList<>();
         args.add(ownerId);

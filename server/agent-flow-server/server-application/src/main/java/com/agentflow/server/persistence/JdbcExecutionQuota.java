@@ -122,9 +122,10 @@ public class JdbcExecutionQuota implements ExecutionQuota, AutoCloseable {
                     return false;
                 }
             }
-            jdbc.update("INSERT INTO execution_lease (execution_id, owner_id, instance_id, acquired_at, expires_at)"
-                            + " VALUES (?, ?, ?, ?, ?)",
-                    executionId, ownerId, instanceId, now, Timestamp.from(now.toInstant().plus(props.leaseTtl())));
+            jdbc.update("INSERT INTO execution_lease (execution_id, owner_id, instance_id, acquired_at, expires_at,"
+                            + " creator, updater) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    executionId, ownerId, instanceId, now, Timestamp.from(now.toInstant().plus(props.leaseTtl())),
+                    AuditActor.current(), AuditActor.current());
             return true;
         });
         boolean ok = Boolean.TRUE.equals(reserved);
@@ -149,8 +150,8 @@ public class JdbcExecutionQuota implements ExecutionQuota, AutoCloseable {
         }
         Timestamp until = Timestamp.from(Instant.now().plus(props.leaseTtl()));
         for (Long executionId : held) {
-            int rows = jdbc.update("UPDATE execution_lease SET expires_at = ?"
-                    + " WHERE execution_id = ? AND instance_id = ?", until, executionId, instanceId);
+            int rows = jdbc.update("UPDATE execution_lease SET expires_at = ?, update_time = CURRENT_TIMESTAMP, updater = ?"
+                    + " WHERE execution_id = ? AND instance_id = ?", until, AuditActor.current(), executionId, instanceId);
             if (rows == 0 && held.remove(executionId)) {
                 // 执行还在跑但租约没了：多半是本机停顿超过 TTL，被别的实例回收走了。
                 // 不重新抢占——那会让同一执行在两个实例的名额下重复计数；如实记一笔，让人看见上限被突破过。

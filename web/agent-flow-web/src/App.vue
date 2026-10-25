@@ -155,7 +155,8 @@ onBeforeUnmount(() => {
               <span class="badge pending">v{{ w.version }}</span>
             </div>
             <div class="muted">{{ w.nodeCount }} 个节点 · #{{ w.id }}</div>
-            <div class="muted mono">更新于 {{ formatTime(w.createdAt) }}</div>
+            <div class="muted mono">更新于 {{ formatTime(w.updateTime || w.createdAt) }} · 创建人 {{ w.creator || 'system' }}</div>
+            <div class="muted mono">最近修改人 {{ w.updater || w.creator || 'system' }}</div>
             <div class="workflow-card-actions">
               <button class="ghost-btn" @click.stop="openWorkflow(w)">打开画布</button>
             </div>

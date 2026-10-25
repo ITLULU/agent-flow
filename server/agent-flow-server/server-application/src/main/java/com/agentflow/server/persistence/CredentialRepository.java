@@ -25,20 +25,24 @@ public class CredentialRepository {
     }
 
     public void insertIfAbsent(long ownerId, String provider, String name, String secretJsonEnc) {
+        String actor = AuditActor.current();
         jdbc.update(connection -> {
             PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO user_credentials (owner_id, provider, name, secret_json_enc) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO user_credentials (owner_id, provider, name, secret_json_enc, creator, updater) "
+                            + "VALUES (?, ?, ?, ?, ?, ?)",
                     new String[]{"id"});
             ps.setLong(1, ownerId);
             ps.setString(2, provider);
             ps.setString(3, name);
             ps.setString(4, secretJsonEnc);
+            ps.setString(5, actor);
+            ps.setString(6, actor);
             return ps;
         });
     }
 
     public List<CredentialMeta> listByOwner(long ownerId, int limit, Long beforeId) {
-        return jdbc.query("SELECT id, owner_id, provider, name, CAST(updated_at AS VARCHAR) AS updated_at "
+        return jdbc.query("SELECT id, owner_id, provider, name, CAST(update_time AS VARCHAR) AS updated_at "
                         + "FROM user_credentials WHERE owner_id = ?"
                         + (beforeId == null ? "" : " AND id < ?")
                         + " ORDER BY id DESC LIMIT ?",
@@ -48,7 +52,7 @@ public class CredentialRepository {
     }
 
     public Optional<CredentialMeta> findMeta(long id) {
-        return jdbc.query("SELECT id, owner_id, provider, name, CAST(updated_at AS VARCHAR) AS updated_at "
+        return jdbc.query("SELECT id, owner_id, provider, name, CAST(update_time AS VARCHAR) AS updated_at "
                         + "FROM user_credentials WHERE id = ?",
                 (rs, i) -> new CredentialMeta(rs.getLong("id"), rs.getLong("owner_id"),
                         rs.getString("provider"), rs.getString("name"), rs.getString("updated_at")),
@@ -63,8 +67,8 @@ public class CredentialRepository {
 
     /** 轮换窗口内的重封装：只改密文不改明文，属主限定避免跨租户改写。 */
     public int rewrapOwned(long id, long ownerId, String secretJsonEnc) {
-        return jdbc.update("UPDATE user_credentials SET secret_json_enc = ?, updated_at = CURRENT_TIMESTAMP "
-                + "WHERE id = ? AND owner_id = ?", secretJsonEnc, id, ownerId);
+        return jdbc.update("UPDATE user_credentials SET secret_json_enc = ?, update_time = CURRENT_TIMESTAMP, updater = ? "
+                + "WHERE id = ? AND owner_id = ?", secretJsonEnc, AuditActor.current(), id, ownerId);
     }
 
     public int deleteOwned(long id, long ownerId) {
@@ -73,9 +77,9 @@ public class CredentialRepository {
 
     /** 便捷方法：upsert 语义 = UPDATE 未命中则 INSERT（控制器串行调用，无并发同键场景）。 */
     public long saveOrUpdate(long ownerId, String provider, String name, String secretJsonEnc) {
-        int updated = jdbc.update("UPDATE user_credentials SET secret_json_enc = ?, updated_at = CURRENT_TIMESTAMP "
+        int updated = jdbc.update("UPDATE user_credentials SET secret_json_enc = ?, update_time = CURRENT_TIMESTAMP, updater = ? "
                         + "WHERE owner_id = ? AND provider = ? AND name = ?",
-                secretJsonEnc, ownerId, provider, name);
+                secretJsonEnc, AuditActor.current(), ownerId, provider, name);
         if (updated > 0) {
             return findMetaByKey(ownerId, provider, name).id();
         }
@@ -84,7 +88,7 @@ public class CredentialRepository {
     }
 
     private CredentialMeta findMetaByKey(long ownerId, String provider, String name) {
-        return jdbc.query("SELECT id, owner_id, provider, name, CAST(updated_at AS VARCHAR) AS updated_at "
+        return jdbc.query("SELECT id, owner_id, provider, name, CAST(update_time AS VARCHAR) AS updated_at "
                         + "FROM user_credentials WHERE owner_id = ? AND provider = ? AND name = ?",
                 (rs, i) -> new CredentialMeta(rs.getLong("id"), rs.getLong("owner_id"),
                         rs.getString("provider"), rs.getString("name"), rs.getString("updated_at")),
