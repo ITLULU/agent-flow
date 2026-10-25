@@ -2,13 +2,30 @@
 
 自研 Agent 自动化工作流平台：可视化 DAG 编排（采集 → LLM 写作 → 生图 → 发布），Spring Boot 3.5 / Java 21 模块化单体 + Vue 3 画布。设计目标按生产上线标准（初期 10w 注册用户 / 3w DAU / 峰值 100 QPS），生产部署于云服务器。
 
+> 只想跑起来：**要起哪些容器见 §1.1**（本地默认形态 **0 个容器**），**后端命令 §1.2、前端命令 §1.3**；容器形态 §1.5 / §5。
+
 ## 1. 快速开始
 
 前置：JDK 21、Maven 3.9+、curl + jq；改前端另需 Node.js 20+（逐项版本见 `docs/TOOLS-CHECKLIST.md`，
 "哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 零外部中间件依赖，克隆即可启动。**
 本服务只连四类外部东西：数据源、LLM+生图（DashScope）、公众号、对象存储；**精排 rerank 不在本服务**，它属于检索侧 `spring-ai-agent/rag-kb`。
 
+### 1.1 先选形态：到底要起几个容器
+
+| 形态 | 要起的容器 | 数据源 | 什么时候用 |
+|---|---|---|---|
+| **A 本地默认 profile** | **0 个**（一个容器都不需要） | H2 文件库 `jdbc:h2:file:./data/agentflow`（`application.yml:14`，PostgreSQL 兼容模式），`./data` 已 gitignore | 改代码、跑测试、跑创作链路、画布开发 |
+| **B 本地进程 + 真 PG** | **1 个**：`agent-flow-db`（`pgvector/pgvector:pg16`） | prod profile + `DB_URL` 指向宿主发布端口 | 要验真 PG 方言 / Flyway 真库行为 |
+| **C 容器形态（生产同构）** | **2 个**：`agent-flow-db` + `agent-flow-server`；打开成品对象存储副本时再 **+1 个** `minio` | compose 注入的 `agent-flow-db:5432` | 交付、演示、按生产口径复验 |
+
+**明确不需要为 agent-flow 启动的容器**：`SpringCloudAdmin/docker-compose/` 下的 nacos、redis、mysql、rabbitmq、rocketmq(+dashboard)、kafka(+ui)、zookeeper、seata、sentinel、es(+kibana)、milvus、qdrant、rerank/rerank-gpu/rerank-mac，以及**独立的 `postgres`**（那个是 rag 侧 `rag` 库用的，本服务用的是 `agent-flow-db`）—— 这些要么是 `SpringCloudAdmin` 自己的微服务演示栈，要么是 rag-kb 的检索基建。**照目录名挨个 `up` 是最常见的一次误判**（Nacos 原本只是传递依赖，P7-3#12 已排除；rerank 本服务根本不连）。
+
+> 本机 Docker Desktop **不会自启**（`AutoStart=false` + 登录项 disabled），重启电脑后要先 `open -a Docker`，等 `docker info` 能通再起容器；`docker` CLI 在 `~/.docker/bin`。
+
+### 1.2 后端启动（形态 A：不启任何容器）
+
 ```bash
+export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home   # ~/.zshrc 默认把 JAVA_HOME 指到 JDK 8，不切就编不过
 cd server/agent-flow-server
 mvn -B install -DskipTests            # 先把 4 个模块装进本地仓库（单模块 spring-boot:run 依赖它）
 mvn -B verify                          # 全模块编译 + 单测/集成测试
@@ -16,12 +33,65 @@ mvn -pl server-application spring-boot:run     # 启动（本地默认 profile�
 # 或直接跑打包产物：java -jar server-application/target/server-application-0.1.0-SNAPSHOT.jar
 ```
 
-验证：
+验证（2026-10-25 12:29 实测，全程 0 容器）：
 
 ```bash
 curl -s http://localhost:8080/actuator/health/liveness   # {"status":"UP"}
 curl -s http://localhost:8080/api/ping                   # {"code":"0",...,"data":"pong"}
 ```
+
+实测输出：`Started AgentFlowApplication in 2.593s`、自检 `security.enabled: false`，`GET /api/ping` 200 `pong`、`GET /api/workflows` 200。
+
+⚠️ **同一条命令在不同形态下结论不同，别据此误判服务坏了**：`security.enabled=true` 时（形态 B/C 的 prod）`/api/ping` 与 `/api/workflows` 都需要身份，**无 token 返回 401 是设计如此**——`EndpointSensitivityContractTest.java:42` 把 `GET /api/ping` 钉成 `USER` 级；`/actuator/health/liveness|readiness` 仍可匿名读。刚重启的机器上如果 8080 连不上，先确认进程在不在（形态 A 没有任何容器提示你）。
+
+### 1.3 前端启动
+
+后端起来后直接访问 `http://localhost:8080/` 即可用（打包产物已随 `server-application/src/main/resources/static` 入库，**前端不需要单独起服务，也不需要 nginx**）。只有要改前端时才用本地 dev server：
+
+```bash
+cd web/agent-flow-web
+npm install
+npm run dev      # 前端 http://localhost:5173，/api 代理到 http://localhost:8080（VITE_API_TARGET 可改）
+npm run build    # 直接输出到 server-application/src/main/resources/static（注意：不是 dist/）
+```
+
+端口对照：**8080 = 后端 API + 打包后的画布静态页**，**5173 = vite dev 的画布**（改前端时用，代理到 8080）。`npm run build` 的产物目录是 Spring Boot 的 `resources/static`，所以 `ls dist` 必然为空，那不是失败。
+
+### 1.4 形态 B：本地进程连真 PG（compose 默认不发布端口，要加 override）
+
+`agent-flow-db` 只挂在 `my-custom-network` 上给容器用，**没有 `ports:`**——直接 `up -d agent-flow-db` 之后本地进程连不上，这是最容易空等的一处。实测可走的做法：
+
+```bash
+cd /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow
+docker network inspect my-custom-network >/dev/null 2>&1 || bash ../network.sh   # 网络必须先存在
+printf 'services:\n  agent-flow-db:\n    ports: ["15432:5432"]\n' > /tmp/override-devdb.yml
+docker compose -f docker-compose.yml -f /tmp/override-devdb.yml up -d agent-flow-db
+
+export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home
+export DB_URL=jdbc:postgresql://127.0.0.1:15432/agentflow DB_USER=agentflow
+export DB_PASSWORD="$(cat secrets/db_password)"
+export AGENTFLOW_JWT_SECRET="$(cat secrets/jwt_secret)" AGENTFLOW_MASTER_KEY="$(cat secrets/master_key)"
+java -jar /Users/a/source/agent-flow/server/agent-flow-server/server-application/target/server-application-0.1.0-SNAPSHOT.jar \
+  --spring.profiles.active=prod
+```
+
+2026-10-25 12:28 实测：日志 `Database: jdbc:postgresql://127.0.0.1:15432/agentflow (PostgreSQL 16.15)`、`Started ... in 2.523s`、`security.enabled: true`，`readiness` UP，真库里 public 9 张表、`flyway_schema_history` 全部 `success=t`。
+明文 env **只为本地验证**；容器/生产一律走 `*_FILE` secret（见 §5 与 compose 注释），密钥不进 yml、不进命令行、不进 `docker inspect`。
+
+### 1.5 形态 C：整条链路都进容器
+
+三个命令起手，完整口径（秘密文件、bootstrap 管理员、密钥轮转、健康核对）看第 5 节：
+
+```bash
+cd /Users/a/source/agent-flow/server/agent-flow-server
+DOCKER_BUILDKIT=1 docker build -t agentflow/server:0.1.0 .          # 改了 Java 代码才需要重建
+cd /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow
+bash gen-secrets.sh                                                  # 首跑：700/600，已被 .gitignore 覆盖
+docker compose up -d                                                 # 起 agent-flow-db + agent-flow-server
+docker compose ps                                                    # 两个都应是 healthy
+```
+
+成品对象存储副本默认**关**（`AGENTFLOW_STORAGE_ENABLED=false`，关时一个字节也不出网）；要在本地开就起 `docker-compose/minio`（9000/9001）并把 endpoint 写 `http://minio:9000`、AK/SK 落 secret 文件。
 
 跑一条真实创作链路（需注入 `AI_API_KEY`；缺 key 时启动正常、`copy.write` 执行报 A0400 配置错）：
 
@@ -33,16 +103,9 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 
 用法、DSL 拆解与成品库 API 见 `docs/CREATION-GUIDE.md`。
 
-### 前端画布（P4）
+### 1.6 前端画布能力（P4）
 
-后端启动后访问 `http://localhost:8080/` 即可用（打包产物已随 `server-application/src/main/resources/static` 入库）。改前端：
-
-```bash
-cd web/agent-flow-web
-npm install
-npm run dev      # http://localhost:5173，/api 代理到 http://localhost:8080（VITE_API_TARGET 可改）
-npm run build    # 直接输出到 server-application/src/main/resources/static，单容器交付，无需 nginx
-```
+启动命令与端口口径见 §1.3（`npm run dev` = 5173 代理到 8080；`npm run build` 直出 `resources/static`，前端无独立容器）。
 
 画布支持：登录/注册、工作流列表与新建、节点拖拽/连线、检查器改参、保存（升版本）、cron 调度、运行与节点时间线、产物抽屉。`vite.config.js` 的 `base: './'` 让静态资源按相对路径加载，挂在任意前缀下都能用。
 
