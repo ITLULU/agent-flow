@@ -92,7 +92,8 @@ public class StartupSelfCheck implements ApplicationRunner {
 
     private String imageBaseUrl() {
         String base = nodeProps.image().baseUrl();
-        return base == null || base.isBlank() ? "https://dashscope.aliyuncs.com" : trimTrailingSlash(base);
+        return base == null || base.isBlank()
+                ? DashScopeImageClient.DEFAULT_BASE_URL : trimTrailingSlash(base);
     }
 
     private static String trimTrailingSlash(String url) {

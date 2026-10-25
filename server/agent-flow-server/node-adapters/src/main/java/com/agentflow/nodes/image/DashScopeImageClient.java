@@ -17,7 +17,8 @@ public class DashScopeImageClient {
 
     public static final String SUBMIT_PATH = "/api/v1/services/aigc/text2image/image-synthesis";
     private static final String TASK_PATH = "/api/v1/tasks/";
-    static final String DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com";
+    /** 万相原生协议 host；写进常量而非散点字面量，配置一致性测试要对得上代码默认值。 */
+    public static final String DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com";
 
     /** 供启动自检回显"请求打到哪个地址"（host + 原生异步提交 path，不含 key）。 */
     public String endpoint() {

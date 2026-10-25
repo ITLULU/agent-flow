@@ -15,18 +15,22 @@ LOG="${AF_LOG:-/tmp/agentflow-${PORT}.log}"
 cd "$(dirname "$0")/../server/agent-flow-server"
 JAR=server-application/target/server-application-0.1.0-SNAPSHOT.jar
 
-# 本机实际有效的 DashScope key 是 AI_API_KEY1，而 application.yml 读的是 AI_API_KEY（+ BAILIAN_API_KEY 兼容）。
-# 这里只做变量名映射，不落地、不回显。
+# 本机两把百炼 key 的变量名与 yml 占位符链不完全同名（按量 key 在 AI_API_KEY1，容器垫片落回 AI_API_KEY）。
+# 这里双向补齐：哪个有值就把另一个也填上，让"从哪个 shell 起"都不影响装配。只映射，不落地、不回显。
 if [[ -z "${AI_API_KEY:-}" && -n "${AI_API_KEY1:-}" ]]; then
   export AI_API_KEY="$AI_API_KEY1"
+elif [[ -z "${AI_API_KEY1:-}" && -n "${AI_API_KEY:-}" ]]; then
+  export AI_API_KEY1="$AI_API_KEY"
 fi
 
 missing=()
-[[ -n "${AI_API_KEY:-}" ]] || missing+=("AI_API_KEY(或 AI_API_KEY1)")
+[[ -n "${AI_API_KEY:-}" ]] || missing+=("AI_API_KEY / AI_API_KEY1（两把至少要有一把）")
 [[ -n "${PG_DB_PASSWORD:-}" ]] || missing+=("PG_DB_PASSWORD")
 if ((${#missing[@]})); then
   echo "缺少环境变量：${missing[*]}" >&2
-  echo "  → 在交互终端里先 export（或 source 你的 env 文件），再重跑本脚本。缺 PG_DB_PASSWORD 时 Flyway 会连不上库直接退出。" >&2
+  echo "  → 注意 zsh 的坑：在 .zshrc 里写 VAR=xxx（没有 export）时，你自己终端里能看到它，" >&2
+  echo "    但脚本和 java 子进程拿不到。补一句 export 即可：export AI_API_KEY1 PG_DB_PASSWORD" >&2
+  echo "  → 缺 PG_DB_PASSWORD 时 Flyway 会在建 bean 阶段直接失败，进程退出。" >&2
   exit 1
 fi
 
@@ -49,7 +53,12 @@ echo "已后台启动：pid=${pid} port=${PORT} log=${LOG}"
 sleep 6
 if kill -0 "${pid}" 2>/dev/null; then
   echo "进程存活。自检摘要："
-  grep -E "Started AgentFlowApplication|StartupSelfCheck - (llm|image) api-key present|Tomcat started" "${LOG}" | tail -3 || echo "  （还在启动中，看日志：tail -f ${LOG}）"
+  grep -E "Started AgentFlowApplication|StartupSelfCheck - (llm|image|vision) endpoint|Tomcat started" "${LOG}" | tail -5 \
+    || echo "  （还在启动中，看日志：tail -f ${LOG}）"
+  # 空 key 是"进程活着但一到执行就报配置错"的隐形状态，这里当场说破，别让人等到跑流水线才发现
+  if grep -q "llm endpoint .*网关未装配" "${LOG}"; then
+    echo "⚠️ llm 网关没装配：agentflow.nodes.llm.api-key 解析为空（脚本已双向映射过 AI_API_KEY/AI_API_KEY1，仍是空说明这个 shell 里两把都没 export）。" >&2
+  fi
 else
   echo "启动失败，最后 20 行日志：" >&2
   tail -20 "${LOG}" >&2

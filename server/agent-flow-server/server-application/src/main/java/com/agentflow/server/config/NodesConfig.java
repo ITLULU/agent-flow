@@ -4,6 +4,7 @@ import com.agentflow.nodes.copy.CopyWriteNodeExecutor;
 import com.agentflow.nodes.copy.OriginalityCheckNodeExecutor;
 import com.agentflow.nodes.http.HttpCollectNodeExecutor;
 import com.agentflow.nodes.image.CoverImageNodeExecutor;
+import com.agentflow.nodes.image.DashScopeImageClient;
 import com.agentflow.nodes.image.ReferenceStyleAnalyzer;
 import com.agentflow.nodes.image.WanxiangImageNodeExecutor;
 import com.agentflow.nodes.ingest.ArticleExtractNodeExecutor;
@@ -56,7 +57,7 @@ public class NodesConfig {
 
     @Bean
     public WanxiangImageNodeExecutor wanxiangImageNodeExecutor(NodeConfigProperties props) {
-        String baseUrl = blank(props.image().baseUrl()) ? "https://dashscope.aliyuncs.com" : props.image().baseUrl();
+        String baseUrl = blank(props.image().baseUrl()) ? DashScopeImageClient.DEFAULT_BASE_URL : props.image().baseUrl();
         return new WanxiangImageNodeExecutor(props.image().apiKey(), baseUrl, java.time.Duration.ofSeconds(30));
     }
 
@@ -111,7 +112,7 @@ public class NodesConfig {
     }
 
     private static String imageBaseUrl(NodeConfigProperties props) {
-        return blank(props.image().baseUrl()) ? "https://dashscope.aliyuncs.com" : props.image().baseUrl();
+        return blank(props.image().baseUrl()) ? DashScopeImageClient.DEFAULT_BASE_URL : props.image().baseUrl();
     }
 
     @Bean
