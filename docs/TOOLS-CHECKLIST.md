@@ -14,8 +14,16 @@
 | JDK 21 | 21.x | ✅ | `21.0.12.1` @ `~/tools/jdk-21.0.12.1+1/Contents/Home`。**注意 `~/.zshrc` 把 `JAVA_HOME` 默认设成 JDK 8（Zulu）**，跑 `mvn` 前必须显式 export 到 21，否则 javac 8 编 `record` 会报"需要 class, interface 或 enum"这种看着像源码坏掉的假错 |
 | JDK 8 | 只给老项目用 | ✅ | Zulu 8.0.504 @ `~/tools/zulu8.96.0.205-...`（Apple Silicon 无 Temurin 8 构建，Zulu 是唯一原生来源） |
 | Maven | ≥ 3.9 | ✅ | 3.10.0 @ `~/tools/apache-maven-3.10.0`。本地仓**不在 `~/.m2`**：`conf/settings.xml` 指向 `/Users/a/m2/repository`（约 496MB，spring-ai/spring-cloud 全量已缓存）。`mvn -o` 对 spring-ai-agent 会报 `present, but unavailable`——那是 3.10 的 `_remote.repositories` 归属校验，**不是缺依赖**，联网走已配的阿里镜像即可（实测单个 pom 0.3s） |
-| Node.js | ≥ 20 LTS | ✅ | v22.20.0 @ `~/tools/node22/bin/node`（不在 agent shell 的 PATH 上，用绝对路径） |
-| pnpm | ≥ 9（可选） | 📥 未装 | 前端实际用 **npm**（仓库里是 `package-lock.json`，`node_modules` 已就位）；不装 pnpm 不影响构建 |
+| Node.js | ≥ 20 LTS | 🟡 装了但**不在 PATH 上** | 二进制在 `~/tools/node22/bin/`（node v22.20.0 / npm 10.9.3），`~/.zshrc` 从未把它加进 PATH ⇒ **用户终端与 agent shell 都 `command -v node` 找不到**。⚠️ 而且"用绝对路径调 npm"也不行：`npm` 的 shebang 是 `#!/usr/bin/env node`，node 不在 PATH 时直接 `env: node: No such file or directory`。正确姿势是把 bin 目录加到 PATH 再跑：<br>`export PATH="$HOME/tools/node22/bin:$PATH"`<br>本机 `/usr/local/bin`、`/opt/homebrew/bin`、`~/.nvm` 三处都没有第二个 node，所以别指望"系统里那个 node"。要长期生效就把上面这行写进 `~/.zshrc` |
+| pnpm | ≥ 9（可选） | 📥 未装 | 前端实际用 **npm**：仓库里是 `package-lock.json`，`node_modules` 30 个顶层包与 `package.json` 声明（`vue` + `@logicflow/core` + `vite` + `@vitejs/plugin-vue`）匹配，**没有** vue-router/pinia/element-plus —— 那些本就不是本项目依赖，别误判成"装漏了" |
+
+### 前端构建的可复现性（2026-10-25 11:36 实测）
+
+`cd web/agent-flow-web && export PATH="$HOME/tools/node22/bin:$PATH" && npm run build`
+⇒ `✓ 784 modules transformed`、`✓ built in 1.23s`。注意 **vite 的 outDir 不是 `dist/`**，而是直接
+产出到 `server/agent-flow-server/server-application/src/main/resources/static/`（`index.html` + `assets/index-*.css|js`），
+由 Spring Boot 当静态资源伺服 —— 所以 `ls dist` 一定是空的，那不是失败。
+重建后的文件名哈希与仓库里**已提交的产物完全一致**（`git status` 干净），即"提交的静态资源 = 本机这条命令的输出"可复现。
 | Docker Desktop | 最新稳定 | ✅ | App **4.96.1** / 引擎 **29.9.2**。**macOS 没有 GPU 直通**（`docker info` 里没有 nvidia runtime），所以 Mac 上跑 GPU 精排走的是宿主机 llama.cpp + Metal，不是容器（见 `SpringCloudAdmin/rerank-apple-gpu/`）。CLI 不在 PATH：`~/.docker/bin`；且 **不会自启**（`AutoStart=false` + 登录项 disabled），重启后要 `open -a Docker` |
 | Homebrew | — | ⛔ 不装 | 装它要交互 sudo，本机 `sudo` 一律要密码 ⇒ 全部走 `~/tools` 用户态 tarball 安装 |
 

@@ -149,7 +149,7 @@ RocketMQ / Seata / Sentinel / Kafka 都是 `SpringCloudAdmin` 自己的微服务
 | **PostgreSQL 16 + pgvector** | prod profile 主数据源（application.yml:132-134 `${DB_URL}`）；默认 profile 用 H2 文件库 `./data/agentflow`（:14） | ✅ 本地 `pgvector/pgvector:pg16` 容器，compose 已带 | 默认 profile 起不来不影响本地跑（H2 够用）；prod profile 连不上则 readiness DOWN |
 | **S3 兼容对象存储** | 成品远端副本，`AGENTFLOW_STORAGE_*`（:76-86） | ✅ 本地 MinIO（`http://minio:9000`）已按生产同形态验过 | `enabled=false` 时一个字节不出网、也不建客户端；`enabled=true` 但配置不齐 = **启动即退出**（故意的 fail-fast） |
 | **成品库目录** | 所有产物读写被约束在此目录内（`JdbcContentStore.resolveInside`，:71） | ✅ 默认 `./data/library` | 目录不可写 ⇒ 启动自检打 ERROR，`publish.local`/`xhs.draft` 执行失败（`StartupSelfCheck.java:104`） |
-| **JDK 21 / Maven 3.10 / Node ≥ 20** | 编译运行（虚拟线程需 21）、Vue 3.5.44 + Vite 5.4.21 前端 | ✅ 本机全在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21 |
+| **JDK 21 / Maven 3.10 / Node 22** | 编译运行（虚拟线程需 21）、Vue `^3.5.44` + Vite 5.4.21 前端 | ✅ 三者都在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21；**Node 只装了没进 PATH**（`~/tools/node22/bin` 不在 `~/.zshrc` 里），要先 `export PATH="$HOME/tools/node22/bin:$PATH"` 才能跑 npm —— 用绝对路径调 `npm` 会因 `env: node: not found` 失败 |
 | **Docker Desktop** | 容器形态复验与 compose 起停（本机 4.96.1 / 引擎 29.9.2） | ✅ | **不会自启**（`AutoStart=false` 且登录项 disabled），重启后要手动 `open -a Docker` |
 | **GitHub Actions** | CI：`ubuntu-latest` + JDK 21（`.github/workflows/ci.yml:10,20`） | ❌ 远端 | push 后不绿就是没验证过 |
 
