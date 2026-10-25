@@ -24,6 +24,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,11 +35,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * wechat.draft — 微信公众号草稿箱发布节点（token → 封面素材 → draft/add，复刻 n8n 版验证过的 API 序列）。
  *
  * params: title / content / digest / thumbUrl 都可显式给，缺省按上游创作产物回退：
- *         title←copy.write.title，content←copy.write.body（纯文本自动转段落 HTML），
+ *         title←copy.write.title，content←copy.write.body（纯文本走内联样式排版器），
  *         digest←copy.write.digest，thumbUrl←image.cover.images[0].url（也兼容 image.wanxiang 的 imageUrl）
+ *         theme(排版配色：moss/azure/amber/ink，缺省 moss；纯文本正文才生效)
  *         author(仅显式参数)
  *         credentialId(可选，P3 凭证库引用；命中则覆盖全局 env 凭证)
- * 输出: draftMediaId / title / hasThumb
+ * 输出: draftMediaId / title / hasThumb / contentChars
  *
  * 四件套口径：
  * - 超时：引擎层 60s；微信 API 正常 <3s，超时即异常态。
@@ -56,6 +58,8 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
 
     public static final String TYPE = "wechat.draft";
     private static final Duration TOKEN_EARLY_REFRESH = Duration.ofMinutes(5);
+    /** 微信 media/uploadimg 的硬上限：超过就进不了正文，只能跳过。 */
+    private static final int MAX_INLINE_IMAGE_BYTES = 1024 * 1024;
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http;
@@ -125,19 +129,27 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "wechat.draft 缺少标题：请传 title 参数，或把 copy.write / article.extract 作为上游");
         }
-        String content = resolveContent(input);
-        if (content.isBlank()) {
+        String rawBody = resolveRawBody(input);
+        if (rawBody.isBlank()) {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "wechat.draft 无正文：content 参数缺失且上游无 body/text/content 输出");
         }
+        WechatHtmlLayout.Theme theme = theme(input);
 
         String token = accessToken(appId, appSecret);
         String thumbMediaId = null;
         String thumbUrl = resolveThumbUrl(input);
         if (!thumbUrl.isBlank()) {
             byte[] image = download(thumbUrl);
-            thumbMediaId = uploadThumbMaterial(appId, token, image, "cover.jpg");
+            thumbMediaId = uploadThumbMaterial(appId, token, image, "cover." + guessImageExt(image));
         }
+
+        List<String> warnings = new ArrayList<>();
+        List<String> inlineImageUrls = uploadInlineImages(appId, token, input, warnings);
+        // 作者自带 HTML 时不能重排（会破坏他的排版），配图追加在文末；纯文本正文交给排版器分层插图
+        String content = isHtml(rawBody)
+                ? WechatHtmlLayout.appendImages(rawBody, theme, inlineImageUrls)
+                : WechatHtmlLayout.render(rawBody, theme, inlineImageUrls);
 
         String draftMediaId = addDraft(appId, token, title, content,
                 input.paramAsString("author", ""),
@@ -148,6 +160,10 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         data.put("draftMediaId", draftMediaId);
         data.put("title", title);
         data.put("hasThumb", thumbMediaId != null);
+        data.put("contentChars", content.length());
+        data.put("inlineImages", inlineImageUrls);
+        data.put("theme", theme.name());
+        data.put("warnings", warnings);
         return NodeOutput.ok(data);
     }
 
@@ -181,74 +197,134 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         };
     }
 
-    private String resolveContent(NodeInput input) {
+    private String resolveRawBody(NodeInput input) {
         String content = input.paramAsString("content", null);
         if (content != null && !content.isBlank()) {
-            return toHtml(content);
+            return content.trim();
         }
         // 流水线回退：body（copy.write 成稿）→ content（llm.chat）→ text（http.collect / article.extract 原文）。
         // 键在外层、上游在内层：反过来的话，节点 id 字典序靠前的采集节点会先用它的原文 text 命中，
         // 外链改写链路就会把原文正文当新稿发进草稿箱（2026-10-25 17:33 实测 draftMediaId 里就是原文）。
         String found = upstreamValue(input, "body", "content", "text");
-        return found.isEmpty() ? "" : toHtml(found);
+        return found.trim();
     }
 
+    /** 排版主题参数：缺省 moss，未知名字直接 A0400 而不是悄悄换一套配色交付。 */
+    private static WechatHtmlLayout.Theme theme(NodeInput input) {
+        String name = input.paramAsString("theme", null);
+        WechatHtmlLayout.Theme theme = WechatHtmlLayout.themeOrNull(name);
+        if (theme == null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "wechat.draft 未知排版主题: " + name + "，可选 " + String.join("/", WechatHtmlLayout.themeNames()));
+        }
+        return theme;
+    }
+
+    /** 带正文标签即视为作者自带排版，节点不再重写他的 HTML。 */
+    private static boolean isHtml(String raw) {
+        return raw.contains("<p") || raw.contains("<section") || raw.contains("<br");
+    }
+
+    /**
+     * 配图来源：显式 inlineImages 参数优先，否则取上游 image.cover 里 kind=illustration 的图。
+     * 主图节点（kind=cover）的 URL 不能当配图用，否则正文开头会出现和第二张封面一模一样的图。
+     */
+    private static List<String> resolveInlineImageSources(NodeInput input) {
+        Object explicit = input.params().get("inlineImages");
+        if (explicit instanceof List<?> list && !list.isEmpty()) {
+            List<String> urls = new ArrayList<>();
+            for (Object item : list) {
+                String s = item == null ? "" : String.valueOf(item).trim();
+                if (!s.isEmpty()) {
+                    urls.add(s);
+                }
+            }
+            return urls;
+        }
+        List<String> urls = new ArrayList<>();
+        for (Map<String, Object> out : orderedUpstream(input)) {
+            Object images = out.get("images");
+            if (!(images instanceof List<?> list)) {
+                continue;
+            }
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map && "illustration".equals(String.valueOf(map.get("kind")))) {
+                    Object url = map.get("url");
+                    if (url != null && !String.valueOf(url).isBlank()) {
+                        urls.add(String.valueOf(url));
+                    }
+                }
+            }
+        }
+        return urls;
+    }
+
+    /**
+     * 正文插图必须换成微信自己的永久 URL：草稿箱不代理外链，直接写万相返回的临时地址，
+     * 2 小时后图就裂开（这是"配图层次"交付不出去的真正原因）。超限的图跳过并记 warning，不悄悄丢。
+     */
+    private List<String> uploadInlineImages(String appId, String token, NodeInput input, List<String> warnings) {
+        List<String> sources = resolveInlineImageSources(input);
+        if (sources.isEmpty()) {
+            return List.of();
+        }
+        List<String> permanent = new ArrayList<>();
+        for (String source : sources) {
+            byte[] image = download(source);
+            if (image.length > MAX_INLINE_IMAGE_BYTES) {
+                warnings.add("配图已跳过：" + source + " 体积 " + image.length + " 字节，超过微信正文插图 1MB 上限");
+                continue;
+            }
+            permanent.add(uploadInlineImage(appId, token, image, "inline." + guessImageExt(image)));
+        }
+        if (permanent.isEmpty()) {
+            warnings.add("上游有 " + sources.size() + " 张配图，但没有一张能进正文，读者只会看到主图");
+        }
+        return permanent;
+    }
+
+    /** 主图取 kind=cover 的第一张；老 DSL 没标 kind 时退回"任一张"，保证存量工作流仍有封面。 */
     private String resolveThumbUrl(NodeInput input) {
         String thumb = input.paramAsString("thumbUrl", null);
         if (thumb != null && !thumb.isBlank()) {
             return thumb;
         }
+        String firstUntyped = null;
         for (Map<String, Object> out : orderedUpstream(input)) {
             Object u = out.get("imageUrl");
             if (u != null && !String.valueOf(u).isBlank()) {
                 return String.valueOf(u);
             }
-            String fromCover = firstImageUrl(out.get("images"));
-            if (fromCover != null) {
-                return fromCover;
-            }
-        }
-        return "";
-    }
-
-    /** image.cover 的 images[{url,...}] 取第一张远端地址——微信封面素材要先把它下载下来。 */
-    private static String firstImageUrl(Object imagesValue) {
-        if (!(imagesValue instanceof List<?> images)) {
-            return null;
-        }
-        for (Object item : images) {
-            if (item instanceof Map<?, ?> map) {
+            for (Map<?, ?> map : imageMaps(out.get("images"))) {
                 Object url = map.get("url");
-                if (url != null && !String.valueOf(url).isBlank()) {
+                if (url == null || String.valueOf(url).isBlank()) {
+                    continue;
+                }
+                Object kind = map.get("kind");
+                if (kind == null || String.valueOf(kind).isBlank() || "cover".equals(String.valueOf(kind))) {
                     return String.valueOf(url);
+                }
+                if (firstUntyped == null && "illustration".equals(String.valueOf(kind))) {
+                    firstUntyped = String.valueOf(url); // 只有配图时至少别空着手发草稿
                 }
             }
         }
-        return null;
+        return firstUntyped == null ? "" : firstUntyped;
     }
 
-    /**
-     * 微信草稿正文必须是 HTML：创作节点产出纯文本，原样提交会被微信压成一整段（换行全丢），
-     * 所以无标签时按段落切分并转义。已带 p/section/br 标签的内容视为用户自己的排版，原样透传。
-     */
-    private static String toHtml(String raw) {
-        String text = raw.trim();
-        if (text.contains("<p") || text.contains("<section") || text.contains("<br")) {
-            return text;
+    private static List<Map<?, ?>> imageMaps(Object imagesValue) {
+        if (!(imagesValue instanceof List<?> list)) {
+            return List.of();
         }
-        StringBuilder sb = new StringBuilder();
-        for (String para : text.split("\\n+")) {
-            String p = para.trim();
-            if (!p.isEmpty()) {
-                sb.append("<p>").append(escapeHtml(p)).append("</p>");
+        List<Map<?, ?>> out = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                out.add(map);
             }
         }
-        return sb.isEmpty() ? "<p>" + escapeHtml(text) + "</p>" : sb.toString();
+        return out;
     }
 
-    private static String escapeHtml(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
 
     private static String upstreamString(NodeInput input, String key) {
         return upstreamValue(input, key);
@@ -351,26 +427,9 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
     }
 
     private String uploadThumbMaterial(String appId, String token, byte[] image, String filename) {
-        String boundary = "----agentflow" + UUID.randomUUID();
-        byte[] body = multipartBody(boundary, filename, image);
-        HttpRequest request;
-        try {
-            request = HttpRequest.newBuilder(safeUri(baseUrl + "/cgi-bin/material/add_material?access_token="
-                            + URLEncoder.encode(token, StandardCharsets.UTF_8) + "&type=image"))
-                    .timeout(callTimeout)
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                    .build();
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "素材上传URL不合法: " + e.getMessage());
-        }
-        HttpResponse<String> resp;
-        try {
-            resp = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (RuntimeException | IOException | InterruptedException e) {
-            throw mapIo("素材上传", e);
-        }
-        JsonNode json = parseJson("素材上传", resp.body());
+        String path = "/cgi-bin/material/add_material?access_token="
+                + URLEncoder.encode(token, StandardCharsets.UTF_8) + "&type=image";
+        JsonNode json = postImage("素材上传", path, filename, image);
         int errcode = json.path("errcode").asInt(0);
         String mediaId = json.path("media_id").asText("");
         if (errcode != 0 || mediaId.isBlank()) {
@@ -381,6 +440,43 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
             throw mapWechatError("素材上传", errcode, json.path("errmsg").asText(""));
         }
         return mediaId;
+    }
+
+    /** uploadimg 返回的是永久图片 URL（没有 media_id），正文里的 img 只能用这种地址。 */
+    private String uploadInlineImage(String appId, String token, byte[] image, String filename) {
+        String path = "/cgi-bin/media/uploadimg?access_token=" + URLEncoder.encode(token, StandardCharsets.UTF_8);
+        JsonNode json = postImage("正文插图上传", path, filename, image);
+        int errcode = json.path("errcode").asInt(0);
+        String url = json.path("url").asText("");
+        if (errcode != 0 || url.isBlank()) {
+            if (errcode == 40001 || errcode == 42001) {
+                tokenCache.remove(appId);
+            }
+            throw mapWechatError("正文插图上传", errcode, json.path("errmsg").asText(""));
+        }
+        return url;
+    }
+
+    private JsonNode postImage(String label, String path, String filename, byte[] image) {
+        String boundary = "----agentflow" + UUID.randomUUID();
+        byte[] body = multipartBody(boundary, filename, image);
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder(safeUri(baseUrl + path))
+                    .timeout(callTimeout)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, label + "URL不合法: " + e.getMessage());
+        }
+        HttpResponse<String> resp;
+        try {
+            resp = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (RuntimeException | IOException | InterruptedException e) {
+            throw mapIo(label, e);
+        }
+        return parseJson(label, resp.body());
     }
 
     private String addDraft(String appId, String token, String title, String content, String author, String digest, String thumbMediaId) {
@@ -481,7 +577,7 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
     private static byte[] multipartBody(String boundary, String filename, byte[] file) {
         String head = "--" + boundary + "\r\n"
                 + "Content-Disposition: form-data; name=\"media\"; filename=\"" + filename + "\"\r\n"
-                + "Content-Type: image/jpeg\r\n\r\n";
+                + "Content-Type: " + guessMime(file) + "\r\n\r\n";
         String tail = "\r\n--" + boundary + "--\r\n";
         byte[] headBytes = head.getBytes(StandardCharsets.UTF_8);
         byte[] tailBytes = tail.getBytes(StandardCharsets.UTF_8);
@@ -490,6 +586,19 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         System.arraycopy(file, 0, out, headBytes.length, file.length);
         System.arraycopy(tailBytes, 0, out, headBytes.length + file.length, tailBytes.length);
         return out;
+    }
+
+    /** 万相出图是 PNG，按字节魔数判定，不靠文件名猜——扩展名写错微信会直接拒收。 */
+    private static boolean isPng(byte[] image) {
+        return image.length > 4 && (image[0] & 0xFF) == 0x89 && image[1] == 'P' && image[2] == 'N' && image[3] == 'G';
+    }
+
+    private static String guessImageExt(byte[] image) {
+        return isPng(image) ? "png" : "jpg";
+    }
+
+    private static String guessMime(byte[] image) {
+        return isPng(image) ? "image/png" : "image/jpeg";
     }
 
     private static String briefText(String s) {

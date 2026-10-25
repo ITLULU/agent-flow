@@ -104,6 +104,7 @@ public class CoverImageNodeExecutor implements NodeExecutor {
             idx++;
             Map<String, Object> img = new HashMap<>();
             img.put("url", url);
+            img.put("kind", kind); // 下游 wechat.draft 靠它区分主图与正文配图，混用会让正文出现第二张封面
             img.put("ratio", spec.ratio());
             img.put("size", spec.size());
             img.put("width", spec.width());
