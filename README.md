@@ -7,7 +7,7 @@
 ## 1. 快速开始
 
 前置：JDK 21、Maven 3.9+、curl + jq；改前端另需 Node.js 20+（逐项版本见 `docs/TOOLS-CHECKLIST.md`，
-"哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 的数据源就是 PostgreSQL，本地与线上同一条代码路径**：起服务前必须先把 `agent-flow-db` 容器拉起来并注入 `DB_PASSWORD`（见 §1.2）。唯一不需要任何外部中间件的是 `mvn verify`——单测自带 `jdbc:h2:mem`，与运行时数据源无关。
+"哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 的数据源就是 PostgreSQL，本地与线上同一条代码路径**：起服务前必须先把 `agent-flow-db` 容器拉起来并注入 `PG_DB_PASSWORD`（见 §1.2）。唯一不需要任何外部中间件的是 `mvn verify`——单测自带 `jdbc:h2:mem`，与运行时数据源无关。
 本服务只连四类外部东西：数据源、LLM+生图（DashScope）、公众号、对象存储；**精排 rerank 不在本服务**，它属于检索侧 `spring-ai-agent/rag-kb`。
 
 ### 1.1 先选形态：到底要起几个容器
@@ -36,7 +36,7 @@ docker compose up -d agent-flow-db                                              
 
 ```bash
 export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home   # ~/.zshrc 默认把 JAVA_HOME 指到 JDK 8，不切就编不过
-export DB_PASSWORD="$(cat /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow/secrets/db_password)"
+export PG_DB_PASSWORD="$(cat /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow/secrets/db_password)"
 cd server/agent-flow-server
 mvn -B install -DskipTests            # 先把 4 个模块装进本地仓库（单模块 spring-boot:run 依赖它）
 mvn -B verify                          # 全模块编译 + 单测/集成测试（测试自带 jdbc:h2:mem，不连容器）
@@ -44,9 +44,9 @@ mvn -pl server-application spring-boot:run     # 启动（默认 profile，无�
 # 或直接跑打包产物：java -jar server-application/target/server-application-0.1.0-SNAPSHOT.jar
 ```
 
-`DB_URL` / `DB_USER` 有默认值（`127.0.0.1:15432/agentflow`、`agentflow`），**只有 `DB_PASSWORD` 必须注入**。缺它不会静默连到别的库：Flyway 在 bean 创建阶段就失败，日志 `The server requested SCRAM-based authentication, but no password was provided`，进程 `exit 1`，端口根本不绑（实测见下）。
+`PG_DB_URL` / `PG_DB_USER` 有默认值（`127.0.0.1:15432/agentflow`、`agentflow`），**只有 `PG_DB_PASSWORD` 必须注入**。缺它不会静默连到别的库：Flyway 在 bean 创建阶段就失败，日志 `The server requested SCRAM-based authentication, but no password was provided`，进程 `exit 1`，端口根本不绑（实测见下）。
 
-IntelliJ 里等价改法：Run Config 的 Environment variables 加 `DB_PASSWORD=<secrets/db_password 的内容>`，**Program arguments 不需要任何 profile 参数**（2026-10-25 之前那行 `--spring.profiles.active=pg` 已作废，profile `pg` 已删除）。
+IntelliJ 里等价改法：Run Config 的 Environment variables 加 `PG_DB_PASSWORD=<secrets/db_password 的内容>`，**Program arguments 不需要任何 profile 参数**（2026-10-25 之前那行 `--spring.profiles.active=pg` 已作废，profile `pg` 已删除）。
 
 验证（2026-10-25 16:40 实测，1 容器）：
 
@@ -56,7 +56,7 @@ curl -s http://localhost:8080/api/ping                   # {"code":"0",...,"data
 ```
 
 实测输出：`Database: jdbc:postgresql://127.0.0.1:15432/agentflow (PostgreSQL 16.15)`、`active profiles : []`、自检 `datasource : jdbc:postgresql://127.0.0.1:15432/agentflow` + `security.enabled: false`、`Started AgentFlowApplication in 2.508s`；`readiness` UP、`/api/ping` `pong`、跑一条创作链路后 `psql` 查到 `workflow=1 execution=1 artifact=1 node_log=2`（写路径确认落在 PG）。
-反向验：`env -u DB_PASSWORD` 启动 → `exit=1`、8082 零监听、`data/agentflow.mv.db` 一个都没生成。
+反向验：`env -u PG_DB_PASSWORD` 启动 → `exit=1`、8082 零监听、`data/agentflow.mv.db` 一个都没生成。
 
 ⚠️ **同一条命令在不同形态下结论不同，别据此误判服务坏了**：`security.enabled=true` 时（形态 B/C 的 prod）`/api/ping` 与 `/api/workflows` 都需要身份，**无 token 返回 401 是设计如此**——`EndpointSensitivityContractTest.java:42` 把 `GET /api/ping` 钉成 `USER` 级；`/actuator/health/liveness|readiness` 仍可匿名读。刚重启的机器上如果 8080 连不上，先确认 `agent-flow-db` 在不在（进程和库都不在时，日志第一条失败就是 Flyway 连接异常，不是端口问题）。
 
@@ -83,14 +83,14 @@ curl -s http://localhost:5173/api/ping                              # pong = 前
 
 ### 1.4 端口发布与形态 B（本地进程 + prod 鉴权）
 
-`agent-flow-db` 自带 `ports: 127.0.0.1:${AGENTFLOW_DB_HOST_PORT:-15432}:5432`（2026-10-25 16:01 起）。**只绑 127.0.0.1**：这个库的口令是 `secrets/db_password`，绑 `0.0.0.0` 等于把 PG 开放给整个局域网；不占 5432 是因为同网络的独立 `postgres` 服务用它，两个 compose 同时 `up` 会撞端口。要换宿主端口：`AGENTFLOW_DB_HOST_PORT=25432 docker compose up -d agent-flow-db`（改了默认值，`DB_URL` 也要跟着改）。
+`agent-flow-db` 自带 `ports: 127.0.0.1:${AGENTFLOW_DB_HOST_PORT:-15432}:5432`（2026-10-25 16:01 起）。**只绑 127.0.0.1**：这个库的口令是 `secrets/db_password`，绑 `0.0.0.0` 等于把 PG 开放给整个局域网；不占 5432 是因为同网络的独立 `postgres` 服务用它，两个 compose 同时 `up` 会撞端口。要换宿主端口：`AGENTFLOW_DB_HOST_PORT=25432 docker compose up -d agent-flow-db`（改了默认值，`PG_DB_URL` 也要跟着改）。
 
 **本地客户端连库**（DBeaver / IDEA Database / psql）：Host `127.0.0.1`、Port `15432`、Database `agentflow`、User `agentflow`、Password 取 `secrets/db_password`。容器之间仍走服务名 `agent-flow-db:5432`，不绕宿主端口。
 
 **B（连鉴权一起验）**：prod profile 只叠加 `security.enabled=true`（数据源定义与默认完全相同，见 `application.yml` 文件头），需再给 `AGENTFLOW_JWT_SECRET` / `AGENTFLOW_MASTER_KEY`，此后所有 `/api/**` 无 token 返回 401 是设计如此：
 
 ```bash
-export DB_PASSWORD="$(cat secrets/db_password)"
+export PG_DB_PASSWORD="$(cat secrets/db_password)"
 export AGENTFLOW_JWT_SECRET="$(cat secrets/jwt_secret)" AGENTFLOW_MASTER_KEY="$(cat secrets/master_key)"
 java -jar .../server-application-0.1.0-SNAPSHOT.jar --spring.profiles.active=prod
 ```
@@ -151,7 +151,7 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `agentflow.security.rate-limit-auth-per-minute` | `30` | `/api/auth/**`（注册/登录）单独阈值，**按客户端 IP 分桶**。拆桶原因：原先匿名与服务通道同挤 uid=0 一个桶，刷登录接口就能把两者一起打满（评审 P6 #6） |
 | `agentflow.security.trust-forwarded-for` | `false` | 打开后才用 `X-Forwarded-For` 第一段当客户端 IP。**只有前面那层反代会覆盖该头时才能开**，否则攻击者伪造 XFF 即可绕开 IP 桶；不开时全部来源都算反代 IP，auth 桶会退化成单桶 |
 | `agentflow.schedule.tick-ms` | `15000` | cron 扫描节拍；测试/多实例调大避免抢发 |
-| `spring.datasource.*`（默认 profile = 线上同一份） | `${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}` / `${DB_USER:agentflow}` / `${DB_PASSWORD:}` | **本地与 prod 共用这一份定义，prod 段不再重复声明数据源**。`DB_URL`/`DB_USER` 的默认值只把"连哪个实例"外置，不把"用哪种库"外置；口令刻意留空默认——解不出来就在启动时报错（Flyway SCRAM 失败、进程 exit 1），好过连上后再吃一个 28P01。云服务器用三个 env 覆盖，禁止写死进 yml |
+| `spring.datasource.*`（默认 profile = 线上同一份） | `${PG_DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}` / `${PG_DB_USER:agentflow}` / `${PG_DB_PASSWORD:}` | **本地与 prod 共用这一份定义，prod 段不再重复声明数据源**。`PG_DB_URL`/`PG_DB_USER` 的默认值只把"连哪个实例"外置，不把"用哪种库"外置；口令刻意留空默认——解不出来就在启动时报错（Flyway SCRAM 失败、进程 exit 1），好过连上后再吃一个 28P01。云服务器用三个 env 覆盖，禁止写死进 yml |
 | `spring.datasource.hikari.maximum-pool-size`（默认与 prod 共用） | `20` | 多实例部署时按总连接÷PG max_connections 重摊。硬约束式：**实例数 × pool-size ≤ `max_connections` × 0.8**（PG 默认 100 ⇒ 2 实例×20 有余量，5 实例×20 就打满，第 6 个实例连接排队）。配额（#11）管的是同时跑几条执行，管不了连接池总量；要突破这个天花板要么调 PG `max_connections`，要么上 PgBouncer（本机未部署，属十万档） |
 | `spring.flyway.enabled` | `true` | 不要改：schema 只允许迁移文件演进 |
 | `management.endpoint.health.probes.enabled` | `true` | 不要改：liveness/readiness 分离是 compose 健康检查依赖 |
@@ -160,7 +160,7 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `agentflow.nodes.llm.api-key` / `image.api-key` | `${AI_API_KEY:${BAILIAN_API_KEY:}}`（空） | env 注入（`AI_API_KEY` 为统一入口，`BAILIAN_API_KEY` 保留兼容；容器走 `AI_API_KEY_FILE`）；空凭证不阻塞启动，`copy.write`/`llm.chat`/`image.cover`/`image.wanxiang` 执行时报不可重试配置错 |
 | `agentflow.nodes.llm.default-model` | `qwen-plus` | 节点 params.model 可逐次覆盖（多模型可配置） |
 | `agentflow.nodes.image.base-url` | `https://dashscope.aliyuncs.com` | 仅测试/代理环境改；节点 `ratio`/`size` 决定出图尺寸 |
-| `agentflow.nodes.wechat.app-id` / `app-secret` | `${WECHAT_APPID:}/${WECHAT_SECRET:}` | env 注入；云端需将出网 IP 加进公众号 IP 白名单；单用户可用 `wechat.draft.credentialId` 走凭证库 |
+| `agentflow.nodes.wechat.app-id` / `app-secret` | `${WX_API_APPID:${WECHAT_APPID:}}` / `${WX_API_SECRET:${WECHAT_SECRET:}}` | env 注入（新名 `WX_API_*` 优先，旧名兼容；容器走 `WECHAT_*_FILE` secret）；云端需将出网 IP 加进公众号 IP 白名单；单用户可用 `wechat.draft.credentialId` 走凭证库 |
 | `agentflow.content.library-dir` | `${AGENTFLOW_LIBRARY_DIR:./data/library}` | 成品库根目录，所有读写被约束在此目录内（`resolveInside` 防穿越）；容器/云主机必须 env 指向持久卷，否则重启丢成品。启动自检做写探针 |
 | `agentflow.content.storage.enabled` | `${AGENTFLOW_STORAGE_ENABLED:false}` | **成品远端副本开关（P7-3#12b）**。关闭时不建客户端、不排扫描、一个字节也不出网；打开时端点/桶/凭证必须齐全，否则启动即失败（fail-fast） |
 | `agentflow.content.storage.endpoint` / `bucket` / `region` / `key-prefix` | `${AGENTFLOW_STORAGE_ENDPOINT:}` / `${AGENTFLOW_STORAGE_BUCKET:}` / `us-east-1` / `artifacts` | S3 兼容端点（MinIO 同网络填 `http://minio:9000`），path-style 访问；`key-prefix` 决定对象键前缀 |
@@ -257,7 +257,7 @@ PG chunk store（`application-persistent.yml:5`）、可选 Milvus（本机 v2.4
 
 #### 只有你能为我提供的东西（其余本机都能自建）
 
-`AI_API_KEY`（LLM+生图同源，`BAILIAN_API_KEY` 兼容保留）、`WECHAT_APPID`/`WECHAT_SECRET`（+ 把出口 IP 加白名单）、
+`AI_API_KEY`（LLM+生图同源，`BAILIAN_API_KEY` 兼容保留）、`WX_API_APPID`/`WX_API_SECRET`（旧名 `WECHAT_APPID`/`WECHAT_SECRET` 仍兼容；+ 把出口 IP 加白名单）、
 云桶的 AK/SK（上表六项）、以及若要接小红书开放平台的 token。
 **一律走 env 或 `*_FILE` 秘密文件，不要贴进对话、不要写进 yml/compose**；密钥落文件后 600、目录 700。
 

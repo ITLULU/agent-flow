@@ -15,8 +15,11 @@ spring:
     # 本地跑通的就是线上跑的那套；PG_DB_URL/PG_DB_USER 的默认值只把"连哪个实例"外置，不把"用哪种库"外置。
     # 缺 PG_DB_PASSWORD 时 Flyway 会在建 bean 阶段就失败（"server requested SCRAM-based authentication, but no password
     # was provided"，端口还没绑、进程 exit 1），不会静默连到别的库——实测见 README §1.2。
-    url: ${PG_DB_URL}
-    username: ${PG_DB_USER}
+    # url/username 必须留默认值（而不是"没 env 就报错"）：24 个测试类只覆盖 spring.datasource.url=jdbc:h2:mem，
+    # 占位符没有默认值会让它们在 Flyway 解析阶段整体报 "No value provided for placeholder"（实测 65 errors）。
+    # 默认值指向的是 PG 本机实例，不是 H2/文件库，所以"本地跑通=线上跑通"这条口径不受影响。
+    url: ${PG_DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
+    username: ${PG_DB_USER:agentflow}
     password: ${PG_DB_PASSWORD:}
     # 不写 driver-class-name：交给 Spring 按 URL 前缀推断（jdbc:postgresql→PG 驱动）。
     # 写死会把"只覆盖 spring.datasource.url 的测试类"一起带走——它们连的是 H2。
@@ -72,8 +75,10 @@ agentflow:
       api-key: ${AI_API_KEY:${BAILIAN_API_KEY:}}   # 万相与 LLM 同源（DashScope）
       base-url: https://dashscope.aliyuncs.com
     wechat:
-      app-id: ${WECHAT_APPID:}
-      app-secret: ${WECHAT_SECRET:}
+      # WX_API_APPID/WX_API_SECRET 是本地 shell 里的名字，WECHAT_APPID/WECHAT_SECRET 是容器 *_FILE secret 落地的名字；
+      # 两条都读，前者优先。任一为空时 wechat.draft 节点直接 A0400，不会拿空凭证去打微信接口。
+      app-id: ${WX_API_APPID:${WECHAT_APPID:}}
+      app-secret: ${WX_API_SECRET:${WECHAT_SECRET:}}
       base-url: https://api.weixin.qq.com
   content:
     # 成品库根目录：所有产物读写都被约束在此目录内（JdbcContentStore.resolveInside）。
@@ -146,5 +151,6 @@ agentflow:
     enabled: true
     # prod 硬要求：AGENTFLOW_JWT_SECRET（≥ 32 字符随机串）与 AGENTFLOW_MASTER_KEY（base64 的 32B 主密钥）必须 env 注入；
     # 缺 JWT 密钥启动即失败，缺主密钥仅凭证库不可用（A0400 降级面容错）
-  # nodes.* 继承默认段：prod 仍由同一组环境变量注入（BAILIAN_API_KEY/WECHAT_APPID/WECHAT_SECRET），
+  # nodes.* 继承默认段：prod 仍由同一组环境变量注入（AI_API_KEY/BAILIAN_API_KEY 与 WX_API_APPID/WX_API_SECRET，
+  # 后者兼容旧名 WECHAT_APPID/WECHAT_SECRET；容器走 *_FILE secret 由 docker-entrypoint.sh 落回明文 env），
   # 差异仅在于云主机需出网白名单：dashscope.aliyuncs.com / api.weixin.qq.com（见 TOOLS-CHECKLIST 云服务段）

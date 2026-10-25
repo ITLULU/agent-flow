@@ -49,7 +49,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * - 降级：不覆盖 degrade——发半截/发错内容比不发更糟，失败必须显性 FAILED 让人工介入。
  *
  * token 缓存：实例级 ConcurrentHashMap（key=appId，多公众号凭证不串号），提前 5 分钟过期刷新；公众号 token 有 2000/日配额，必须缓存。
- * 凭证：优先 credentialId → CredentialProvider 端口（P3 加密凭证库），缺省全局 env（WECHAT_APPID/WECHAT_SECRET）。
+ * 凭证：优先 credentialId → CredentialProvider 端口（P3 加密凭证库），缺省全局 env
+ *       （WX_API_APPID/WX_API_SECRET，兼容旧名 WECHAT_APPID/WECHAT_SECRET，见 application.yml nodes.wechat）。
  */
 public class WechatDraftNodeExecutor implements NodeExecutor {
 
@@ -116,7 +117,8 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         String appId = creds[0];
         String appSecret = creds[1];
         if (appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank()) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "公众号发布未配置（缺少 WECHAT_APPID/WECHAT_SECRET 或 credentialId）");
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "公众号发布未配置（缺少 WX_API_APPID/WX_API_SECRET（旧名 WECHAT_APPID/WECHAT_SECRET 也可）或 credentialId）");
         }
         String title = firstNonBlank(input.paramAsString("title", null), upstreamString(input, "title"));
         if (title.isBlank()) {

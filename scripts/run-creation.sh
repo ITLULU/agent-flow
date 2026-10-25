@@ -174,11 +174,34 @@ for _ in $(seq 1 120); do
 done
 jq -r '.data.nodes[]? | "  \(.nodeId) \(.nodeType) → \(.status)（\(.attempts) 次 / \(.durationMs // 0)ms\(.reason // "" | if .=="" then "" else " :: " + . end)）"' <<<"$DET"
 echo "== 终态: $STATUS =="
-[[ "$STATUS" == SUCCESS || "$STATUS" == SUCCESS_WITH_DEGRADED ]] || { echo "$DET" | jq .; exit 1; }
 
-# /api/artifacts 是分页对象 {items,nextCursor}（P7-3#13），不是裸数组；写成 .data[] 会让 jq 报
-# "Cannot index array with string"，取成品这一步直接崩
-ART_ID=$(jq -r "[.data.items[] | select(.kind==\"$KIND\")][0].id // empty" <<<"$(api GET "/api/artifacts?kind=$KIND&limit=1")")
+if [[ "$STATUS" == RUNNING || "$STATUS" == QUEUED ]]; then
+    echo "!! 轮询超时（约 240s）执行仍未落定：$EX_ID，稍后 curl $BASE_URL/api/executions/$EX_ID 复查" >&2
+    exit 1
+fi
+
+# 成品 id 直接取 publish.local 的输出（本次执行写下的那一条），比"库里最新一条"可靠：
+# 并发跑多条流水线时后者会拿错稿。
+ART_ID=$(jq -r '[.data.nodes[]? | select(.nodeType=="publish.local")][0].output.artifactId // empty' <<<"$DET")
+
+# 外发（wechat.draft / xhs.draft）失败时，创作 + 归档已经落定：成品行在 PG、文件在 library 目录。
+# 这里不能一走了之——先公告物在哪、再退出非 0，让"推送失败"和"稿子没丢"同时可见。
+if [[ "$STATUS" != SUCCESS && "$STATUS" != SUCCESS_WITH_DEGRADED ]]; then
+    echo "!! 失败节点明细:" >&2
+    jq -r '.data.nodes[]? | select(.status=="FAILED") | "   \(.nodeType): \(.reason // "无原因")"' <<<"$DET" >&2
+    if [[ -n "$ART_ID" ]]; then
+        echo "!! 但本地归档已成功：成品 #$ART_ID（curl $BASE_URL/api/artifacts/$ART_ID/files 可取文件清单）" >&2
+    else
+        echo "!! 且未生成成品（失败发生在 publish.local 之前）" >&2
+    fi
+    exit 1
+fi
+
+if [[ -z "$ART_ID" ]]; then
+    # /api/artifacts 是分页对象 {items,nextCursor}（P7-3#13），不是裸数组；写成 .data[] 会让 jq 报
+    # "Cannot index array with string"，取成品这一步直接崩
+    ART_ID=$(jq -r "[.data.items[] | select(.kind==\"$KIND\")][0].id // empty" <<<"$(api GET "/api/artifacts?kind=$KIND&limit=1")")
+fi
 [[ -n "$ART_ID" ]] || { echo "成品库没有 kind=$KIND 记录" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
 while IFS= read -r F; do

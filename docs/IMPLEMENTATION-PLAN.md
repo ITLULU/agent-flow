@@ -109,7 +109,7 @@ public interface LlmGateway {
 | skill 节 | 落地物 | 验收 |
 |---|---|---|
 | 1 仓库 | `.gitignore`（含 `.env`/`*secret*`/`*.pem`/H2 数据目录）、README 四节、父 pom 只管版本 | 干净目录按 README 跑通 |
-| 2 配置 | 默认 profile=PostgreSQL（本地=线上同一份数据源定义），`-prod` 只叠鉴权；缓存仍是进程内（`-redis` 可选 profile）；每开关 yml=代码=文档三处一致 | 起 `agent-flow-db` 容器 + 注入 `DB_PASSWORD` 后 `mvn -pl server-application spring-boot:run` 成功；CI 冒断言默认必须是 `jdbc:postgresql`、yml 里不出现 `org.h2.Driver`、H2 依赖 scope=test |
+| 2 配置 | 默认 profile=PostgreSQL（本地=线上同一份数据源定义），`-prod` 只叠鉴权；缓存仍是进程内（`-redis` 可选 profile）；每开关 yml=代码=文档三处一致 | 起 `agent-flow-db` 容器 + 注入 `PG_DB_PASSWORD` 后 `mvn -pl server-application spring-boot:run` 成功；CI 冒断言默认必须是 `jdbc:postgresql`、yml 里不出现 `org.h2.Driver`、H2 依赖 scope=test |
 | 3 外部调用 | `NodeExecutor` 基类四件套 + grep 无裸 builder | 三异常单测 CI 绿 |
 | 4 异常边界 | `@RestControllerAdvice`：`{code,message,traceId}`；入参 null/超长/路径穿越在过滤器兜底 | 故意 400/500 返回结构体 |
 | 5 安全 | JWT 鉴权过滤器骨架（`security.enabled` 开关默认 false 于 local）；credential 加密；SENSITIVE 端点清单（草稿发布/凭证写/执行触发）打注解标 | `security.enabled=true` 无 token 401 |

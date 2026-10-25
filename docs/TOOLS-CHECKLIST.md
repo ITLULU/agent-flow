@@ -99,8 +99,8 @@
 | `AGENTFLOW_API_TOKEN` | 自定强随机串 | 服务通道 token（`X-API-Token`）。P3 起业务身份改用 JWT；P7-1 起该主体 uid=0/role=ops，**不再是全站 admin**，只能碰 uid=0 名下资源 |
 | `AI_API_KEY`（`BAILIAN_API_KEY` 兼容保留） | 阿里云百炼控制台（你已有） | LLM 节点：qwen 系列（dashscope 原生，`SpringAiLlmGateway`） |
 | 万相（复用 `AI_API_KEY`） | 同上，需开通万相服务 | 生图节点异步任务 `/api/v1/services/aigc/text2image/image-synthesis` |
-| `WECHAT_APPID` / `WECHAT_SECRET` | 公众号后台 | 草稿发布节点；注意 IP 白名单要加**实际调用方的出口 IP**（本机联调 = 本机出口 IP，上云 = 云服务器出口 IP） |
+| `WX_API_APPID` / `WX_API_SECRET` | 公众号后台 | 草稿发布节点（旧名 `WECHAT_APPID/WECHAT_SECRET` 仍兼容，新名优先）。**IP 白名单要加实际调用方的出口 IP**（本机联调 = 本机出口 IP，上云 = 云服务器出口 IP）；实测 secret 填错直接回 `errcode=40125 invalid appsecret`→A0400 不可重试，不会静默 |
 | 小红书 token（可选） | 开放平台，走凭证库 `credentialId` | 只有接 `xhs-open-api` 才需要；默认 `xhs-local-package` 只出本地图文包，零外部依赖 |
-| `DB_URL` / `DB_USER` / `DB_PASSWORD` | 你的 PG 实例 | prod profile 数据源（P1 起） |
+| `PG_DB_URL` / `PG_DB_USER` / `PG_DB_PASSWORD` | 本机 compose 的 `agent-flow-db`（宿主 15432） | **默认 profile 与 prod 共用的数据源三元组**（2026-10-25 起从 `DB_*` 改名，容器入口脚本 `docker-entrypoint.sh` 的 `*_FILE` 白名单同步）；只有 `PG_DB_PASSWORD` 必须给 |
 | `AGENTFLOW_STORAGE_*` + AK/SK 文件 | 云桶控制台 | 成品远端副本；AK/SK **只落 `secrets/storage_{access,secret}_key` 600 文件**，绝不写进 yml/compose，也不贴进对话 |
 

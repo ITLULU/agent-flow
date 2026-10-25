@@ -45,7 +45,16 @@ scripts/run-creation.sh --mode xhs --source hot --illustrations 2 --publish loca
 scripts/run-creation.sh --mode wechat --topic "..." --credential-id 12 --dry-run   # 只看将要提交的 DSL
 ```
 
-脚本做四件事：拼 DSL 并打印 → `POST /api/workflows` → `POST /api/workflows/{id}/executions` → 轮询 `/api/executions/{id}` **顶层 status** 到终态，再把最新成品的所有文件下载到 `--out` 目录。
+脚本做四件事：拼 DSL 并打印 → `POST /api/workflows` → `POST /api/workflows/{id}/executions` → 轮询 `/api/executions/{id}` **顶层 status** 到终态，再把本次成品的所有文件下载到 `--out` 目录（成品 id 直接取 `publish.local` 节点输出里的 `artifactId`，不是"库里最新一条"——并发跑多条流水线时后者会拿错稿）。
+
+### 3.1 归档优先：外发失败不丢稿
+
+DSL 的固定顺序是 `… → publish.local → wechat.draft|xhs.draft`：**先落库落盘，再谈外发**。所以草稿推送失败时（凭证错、IP 不在白名单、微信侧 5xx），
+
+- 成品行已在 PostgreSQL `artifact` 表里，`article.md` / `meta.json` / `assets/cover-*.png` 已在 `library-dir` 下落盘，`/api/artifacts/incomplete` 里不会出现它（`markComplete` 已执行）；
+- 执行终态仍是 `FAILED`（不粉饰：`wechat.draft` 声明了"不降级"，发半截比不发更糟），脚本打印失败节点原因后**额外打印 `成品 #<id>` 与取回命令**再 exit 1；
+- 实测（2026-10-25 17:19，执行 8）：`copy.write/image.cover/publish.local` 三段 SUCCESS、`wechat.draft` 因 `errcode=40125 invalid appsecret` FAILED，成品 #4 的文件清单与 `article.md` 下载均正常。
+- 要重发不必重跑创作：直接对成品 #id 起一条只有 `wechat.draft` 的流水线会缺上游正文，正确做法是修好凭证后整条重跑（创作段可加 `--publish none` 先只出成品）。
 
 ## 4. 手工 API 序列（等价拆解）
 
@@ -110,7 +119,7 @@ curl -s -o cover.png "$BASE_URL/api/artifacts/3/file?path=assets/cover-1-3x4.png
 | 文案模型 | `agentflow.nodes.llm.api-key` ← `AI_API_KEY`（`BAILIAN_API_KEY` 兼容） | 节点在位，执行报 A0400「LLM 网关未配置」，不阻塞启动 |
 | 生图模型 | `agentflow.nodes.image.api-key` ← `AI_API_KEY`（万相同账号） | 无 key 时 `image.cover` 报不可重试配置错；生图失败本身**降级**为无图继续发布 |
 | 成品库目录 | `agentflow.content.library-dir`（默认 `./data/library`） | 启动自检做写探针，不可写直接打错误日志预告 `publish.local`/`xhs.draft` 会失败 |
-| 微信凭证 | 环境变量 `WECHAT_APPID/WECHAT_SECRET`，或 `wechat.draft.credentialId` 指向凭证库 | 库内 AES-GCM 加密存储，API 永不回显明文；未配主密钥时凭证接口报 A0400，其它功能不受影响。**`credentialId` 只认"这条工作流的归属者"**（P7-1）：别人的凭证 id 填进自己的 DSL 会报"凭证不存在或无法解密"且不会出网，这是刻意的——不区分"不存在"与"无权"，免得拿它探测他人凭证 |
+| 微信凭证 | 环境变量 `WX_API_APPID/WX_API_SECRET`（旧名 `WECHAT_APPID/WECHAT_SECRET` 兼容；容器走 `WECHAT_*_FILE` secret），或 `wechat.draft.credentialId` 指向凭证库 | 库内 AES-GCM 加密存储，API 永不回显明文；未配主密钥时凭证接口报 A0400，其它功能不受影响。**`credentialId` 只认"这条工作流的归属者"**（P7-1）：别人的凭证 id 填进自己的 DSL 会报"凭证不存在或无法解密"且不会出网，这是刻意的——不区分"不存在"与"无权"，免得拿它探测他人凭证 |
 
 生产部署务必：`agentflow.security.enabled=true` + `AGENTFLOW_JWT_SECRET`（≥32B）+ `AGENTFLOW_MASTER_KEY`（base64 32B）。微信通道还需把服务器出网 IP 加进公众号 IP 白名单。
 
@@ -119,4 +128,4 @@ curl -s -o cover.png "$BASE_URL/api/artifacts/3/file?path=assets/cover-1-3x4.png
 - `xhs.draft` 无官方公开草稿 API：默认只产出**小红书图文包**（标题/正文/话题/图片清单）落本地成品库；配 `endpoint` 才外发，失败记 warnings 不判 FAILED。
 - 热榜源结构变更最易表现为「取到 JSON 但零条目」，节点会显式记 `failedSources`；`endpointOverride` 可换源不改码。
 - 引擎已支持同层并发（P7-3#18：按依赖分层、同层节点同时跑，宽度 `agentflow.engine.max-parallel-nodes` 默认 8）。本文推荐流水线是 a→b→c→e→f 单链，所以配图与主图仍逐个产出；想让两者并发就把它们挂成同一上游的两个兄弟节点（下游各自读上游输出，无需改代码）。
-- 真 key 联调：注入 `AI_API_KEY`（+ 微信 appid/secret）后跑上面第 3 节命令即可；文案 + 生图 + 本地发布三段已用真实 key 实测 SUCCESS（微信草稿仍需真 appid/secret）。
+- 真 key 联调：注入 `AI_API_KEY`（+ `WX_API_APPID/WX_API_SECRET`）后跑上面第 3 节命令即可。2026-10-25 实测：文案（21.1s）、封面（7.0s，万相真出图）、归档（16ms）三段 SUCCESS；`wechat.draft` 走到了微信服务端并回 `40125 invalid appsecret`——即凭证名已生效、链路已通，剩下的是公众号后台把 AppSecret 配对/重置。
