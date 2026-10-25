@@ -36,14 +36,19 @@ import java.util.function.Supplier;
  * params: generated(缺省取上游创作产物的 body) / source(缺省取上游 article.extract|http.collect 的 text)
  *         maxScore(默认 25，超过即判风险) / strict(默认 false) / model / useLlm(默认 true)
  * 输出: similarityScore / riskLevel / maxScore / localOverlap / maxCommonRun / commonFragments[] /
- *       method(llm+local|local-only) / dimensions{}/summary / sourceChars / generatedChars
+ *       method(llm+local|local-only) / llmNote(仅模型评分缺失时) / dimensions{} / summary
+ *       / sourceChars / generatedChars
  *
  * 四件套口径：
  * - 超时 90s（一次评分调用）；重试 1 次、2s 退避（按 token 计费，尽量少重）。
  * - 异常：两份文本缺任一份 → A0400（无对照物的"通过"是假绿）；LLM 缺席或报错 → 退化为 local-only 并写明，
  *   校验本身不阻断链路。
- * - 降级：**超阈值即 degraded**（整条执行变 SUCCESS_WITH_DEGRADED，稿子照样归档，但你在时间线看得见它有风险）；
- *   strict=true 时改为抛错让链路停在发布前——默认不阻断，因为拦截失败看起来像链路坏了，容易被当成 bug 绕过去。
+ * - 降级：两种情形都必须显性，不许"绿着放行"——
+ *   ① 超阈值即 degraded（整条执行变 SUCCESS_WITH_DEGRADED，稿子照样归档，但你在时间线看得见它有风险）；
+ *   ② 请求了模型评分（useLlm=true）却没拿到（网关缺席/调用异常/报文不是 JSON）也 degraded，
+ *      reason 写清是哪一种，输出里带 `llmNote`。理由：本地 5-gram 只看得出整句照抄，看不出
+ *      "换了词但沿用骨架"，实测同一篇稿本地 0 分、模型 68 分——模型缺位时的 0 分是假绿（评审 2026-10-25 执行 16）。
+ *   strict=true 时超阈值改为抛错让链路停在发布前——默认不阻断，因为拦截失败看起来像链路坏了，容易被当成 bug 绕过去。
  */
 public class OriginalityCheckNodeExecutor implements NodeExecutor {
 
@@ -107,13 +112,23 @@ public class OriginalityCheckNodeExecutor implements NodeExecutor {
 
         int llmScore = -1;
         String method = "local-only";
-        JsonNode llm = useLlm ? askModel(input, source, generated) : null;
-        if (llm != null) {
-            llmScore = llm.path("similarityScore").asInt(-1);
-            method = "llm+local";
-            data.put("summary", llm.path("summary").asText(""));
-            data.put("dimensions", dimensions(llm));
-            data.put("modelFragments", modelFragments(llm));
+        String llmUnavailable = null;
+        if (useLlm) {
+            ModelScore model = askModel(input, source, generated);
+            JsonNode llm = model.json();
+            if (llm == null || !llm.path("similarityScore").isNumber()) {
+                llmUnavailable = llm == null ? model.unavailable() : "模型报文里没有 similarityScore 数字";
+            } else {
+                llmScore = llm.path("similarityScore").asInt();
+                method = "llm+local";
+                data.put("summary", llm.path("summary").asText(""));
+                data.put("dimensions", dimensions(llm));
+                data.put("modelFragments", modelFragments(llm));
+            }
+        }
+        if (llmUnavailable != null) {
+            // 要了模型评分却没拿到，原因必须留在输出里：否则一次网关故障就把"未校验"伪装成"0 分通过"
+            data.put("llmNote", llmUnavailable);
         }
         int score = Math.max(localScore, llmScore);
         if (local.maxRun() >= HARD_COPY_RUN_CHARS) {
@@ -131,43 +146,81 @@ public class OriginalityCheckNodeExecutor implements NodeExecutor {
         data.put("localScore", localScore);
 
         boolean overThreshold = score > maxScore || local.maxRun() >= HARD_COPY_RUN_CHARS;
-        if (!overThreshold) {
+        if (!overThreshold && llmUnavailable == null) {
             return NodeOutput.ok(data);
         }
         String reason = "原创度不达标：相似度 " + score + "/100（阈值 " + maxScore
                 + "），最长连续相同 " + local.maxRun() + " 字"
                 + (local.maxRun() >= HARD_COPY_RUN_CHARS ? "——已达照抄级别，必须人工改写" : "，建议复核措辞与结构");
+        if (!overThreshold) {
+            reason = "本地口径过了，但这次没拿到模型评分（" + llmUnavailable
+                    + "）：5-gram 只看得出整句照抄，看不出换词照抄，此结论不构成原创证明";
+        } else if (llmUnavailable != null) {
+            reason += "；且模型评分缺失（" + llmUnavailable + "），这个分数只是本地口径";
+        }
         if (strict) {
             throw new ApiException(ErrorCode.BAD_REQUEST, reason + "（strict=true，已阻断进入发布段）");
         }
         return NodeOutput.degraded(data, reason);
     }
 
+    /** json 非空 = 拿到了可解析的评分报文；否则 unavailable 写明是哪一种缺失。 */
+    record ModelScore(JsonNode json, String unavailable) {
+    }
+
     /** 模型侧只负责语义判断；任何失败都退回本地算法，不让"校验"变成链路的新单点。 */
-    private JsonNode askModel(NodeInput input, String source, String generated) {
+    private ModelScore askModel(NodeInput input, String source, String generated) {
         LlmGateway gateway = gatewaySupplier == null ? null : gatewaySupplier.get();
         if (gateway == null) {
-            return null;
+            return new ModelScore(null, "LLM 网关未配置");
         }
         String user = "【文章A｜原始参考文章】\n" + clip(source, MAX_SOURCE_CHARS)
                 + "\n\n【文章B｜待交付生成文章】\n" + clip(generated, MAX_GENERATED_CHARS);
+        String content = null;
         try {
             LlmGateway.Reply reply = gateway.chat(new LlmGateway.Request(
                     input.paramAsString("model", null), PromptTemplates.load("copy-originality.txt"), user, 0.1d));
-            if (reply == null || reply.content() == null) {
-                return null;
+            content = reply == null ? null : reply.content();
+            if (content == null || content.isBlank()) {
+                return new ModelScore(null, "模型没有返回内容");
             }
-            return mapper.readTree(extractJson(reply.content()));
+            return new ModelScore(parseModelJson(content), null);
         } catch (ApiException e) {
             throw e;
         } catch (RuntimeException | java.io.IOException e) {
-            return null;
+            // 带上报文头部：模型侧失败时整条链路只剩本地口径，看不到模型回了什么就永远修不动（2026-10-25 执行 17）
+            return new ModelScore(null, "模型调用失败：" + e.getClass().getSimpleName()
+                    + (content == null ? "" : "，报文头部：" + snippet(content)));
         }
+    }
+
+    /**
+     * 两级解析。模型有时把 JSON 语法本身写成全角引号，有时又用全角引号在字符串值里摘录原文
+     * （`"fragmentA": "“被需要”是一种燃料"`）——一律替换会把后者这份合法 JSON 换碎，
+     * 实测正是执行 16/17 那次 JsonParseException 的来源。先按原样解析，失败才退回替换版。
+     */
+    private JsonNode parseModelJson(String raw) throws java.io.IOException {
+        String sliced = extractJson(raw);
+        try {
+            return mapper.readTree(sliced);
+        } catch (java.io.IOException firstAttempt) {
+            return mapper.readTree(straightenQuotes(sliced));
+        }
+    }
+
+    static String straightenQuotes(String s) {
+        return s.replace("\u201c", "\"").replace("\u201d", "\"").replace("\u2018", "'").replace("\u2019", "'");
+    }
+
+    /** 失败诊断用的报文头部：压平换行、只留 120 字，够定位格式问题又不至于把整篇稿子塞进执行明细。 */
+    static String snippet(String raw) {
+        String s = raw.replaceAll("\\s+", " ").trim();
+        return s.length() > 120 ? s.substring(0, 120) + "…" : s;
     }
 
     /** 剥掉 ```json 围栏并取首尾花括号：模板要求只输出 JSON，模型仍常附一句前言。 */
     static String extractJson(String raw) {
-        String s = raw.replace("\u201c", "\"").replace("\u201d", "\"").replace("\u2018", "'").replace("\u2019", "'").trim();
+        String s = raw.trim();
         int fence = s.indexOf("```");
         if (fence >= 0) {
             int body = s.indexOf('\n', fence);

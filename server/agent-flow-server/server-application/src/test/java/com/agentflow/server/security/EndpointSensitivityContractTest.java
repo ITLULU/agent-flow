@@ -21,9 +21,17 @@ class EndpointSensitivityContractTest {
 
     @Test
     void everyControllerRouteIsClassified() {
-        // 1 ping + 2 auth + 8 workflow + 3 credential + 8 artifact
-        assertThat(catalog.entries()).hasSize(22);
+        // 1 ping + 2 auth + 8 workflow + 3 credential + 8 artifact + 3 image-studio
+        assertThat(catalog.entries()).hasSize(25);
         assertThat(catalog.entries()).allSatisfy(e -> assertThat(e.level()).isNotNull());
+    }
+
+    /** 生图工作台三个端点都要身份：它会花真钱调万相/qwen-vl，绝不能落进匿名可达清单。 */
+    @Test
+    void imageStudioRoutesRequireUserLevel() {
+        assertThat(entry("POST", "/api/image/studio/generate").level()).isEqualTo(Sensitivity.USER);
+        assertThat(entry("POST", "/api/image/studio/analyze-reference").level()).isEqualTo(Sensitivity.USER);
+        assertThat(entry("GET", "/api/image/studio/file").level()).isEqualTo(Sensitivity.USER);
     }
 
     @Test

@@ -333,6 +333,11 @@ public class JdbcContentStore implements ContentStore {
         return resolveInside(artifactPath(artifactId), relativePath);
     }
 
+    /** 独立生图（/api/image/studio）回读暂存文件用；文件名先过 basename 清洗，再叠穿越校验。 */
+    public Path stagedFile(long jobId, String fileName) {
+        return resolveInside(resolveInside(root, STAGING + "/" + jobId), safeName(fileName));
+    }
+
     public Path root() {
         return root;
     }

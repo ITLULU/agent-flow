@@ -4,6 +4,7 @@ import com.agentflow.nodes.copy.CopyWriteNodeExecutor;
 import com.agentflow.nodes.copy.OriginalityCheckNodeExecutor;
 import com.agentflow.nodes.http.HttpCollectNodeExecutor;
 import com.agentflow.nodes.image.CoverImageNodeExecutor;
+import com.agentflow.nodes.image.ReferenceStyleAnalyzer;
 import com.agentflow.nodes.image.WanxiangImageNodeExecutor;
 import com.agentflow.nodes.ingest.ArticleExtractNodeExecutor;
 import com.agentflow.nodes.ingest.HotTopicFetchNodeExecutor;
@@ -97,8 +98,20 @@ public class NodesConfig {
     @Bean
     public CoverImageNodeExecutor coverImageNodeExecutor(NodeConfigProperties props,
                                                          ObjectProvider<ContentStore> contentStore) {
-        String baseUrl = blank(props.image().baseUrl()) ? "https://dashscope.aliyuncs.com" : props.image().baseUrl();
-        return new CoverImageNodeExecutor(props.image().apiKey(), baseUrl, contentStore.getIfAvailable());
+        return new CoverImageNodeExecutor(props.image().apiKey(), imageBaseUrl(props), contentStore.getIfAvailable());
+    }
+
+    /** 独立生图工作台的参考图解析器；无 key 时为 NullBean，工作台调用时报配置错。 */
+    @Bean
+    public ReferenceStyleAnalyzer referenceStyleAnalyzer(NodeConfigProperties props) {
+        if (blank(props.image().apiKey())) {
+            return null;
+        }
+        return new ReferenceStyleAnalyzer(props.image().apiKey(), imageBaseUrl(props));
+    }
+
+    private static String imageBaseUrl(NodeConfigProperties props) {
+        return blank(props.image().baseUrl()) ? "https://dashscope.aliyuncs.com" : props.image().baseUrl();
     }
 
     @Bean

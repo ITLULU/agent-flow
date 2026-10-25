@@ -41,6 +41,11 @@ class OriginalityCheckNodeExecutorTest {
              "similarFragments": [{"fragmentA": "第一读者不是领导", "fragmentB": "第一读者并非领导", "similarity": 85, "note": "换个说法照抄"}]}
             ```""";
 
+    /** 模型认为确实改写了（配合彻底改写的稿子，唯一能给出"绿色通过"的组合）。 */
+    private static final String LLM_CLEAN_JSON = """
+            {"similarityScore": 8, "wordingSimilarity": 10, "structureSimilarity": 5,
+             "themeSimilarity": 40, "expressionSimilarity": 6, "summary": "措辞与结构均已重写"}""";
+
     private static NodeOutput run(Map<String, Object> params, Map<String, Object> upstream, LlmGateway gateway) {
         return new OriginalityCheckNodeExecutor(() -> gateway).execute(new NodeInput(params, upstream), CTX);
     }
@@ -79,12 +84,45 @@ class OriginalityCheckNodeExecutorTest {
 
     @Test
     void thoroughRewritePassesClean() {
-        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), null);
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), new StubGateway(LLM_CLEAN_JSON));
 
         assertThat(out.degraded()).isFalse();
         assertThat((int) out.data().get("similarityScore")).isLessThanOrEqualTo(OriginalityCheckNodeExecutor.RISK_LOW_MAX);
-        assertThat(out.data()).containsEntry("riskLevel", "low");
+        assertThat(out.data()).containsEntry("riskLevel", "low").containsEntry("method", "llm+local")
+                .doesNotContainKey("llmNote");
         assertThat((double) out.data().get("localOverlap")).isLessThan(0.1d);
+    }
+
+    /**
+     * 本地 5-gram 只看得出整句照抄。实测同一篇参考文章：执行 15 模型口径 68/high，执行 16 模型缺位时本地 0/low——
+     * 那个 0 是假绿，必须显性降级，否则"没校验"会被读成"校验通过"。
+     */
+    @Test
+    void missingModelScoreDowngradesEvenACleanLocalScore() {
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), null);
+
+        assertThat(out.degraded()).isTrue();
+        assertThat(out.data()).containsEntry("method", "local-only");
+        assertThat(out.data()).containsEntry("llmNote", "LLM 网关未配置");
+        assertThat(out.degradeReason()).contains("不构成原创证明");
+    }
+
+    @Test
+    void strictModeBlocksWhenModelScoreIsMissing() {
+        assertThatThrownBy(() -> run(Map.of("source", SOURCE, "generated", REWRITTEN, "strict", true), Map.of(), null))
+                .isInstanceOfSatisfying(ApiException.class, e ->
+                        assertThat(e.getMessage()).contains("没拿到模型评分").contains("已阻断进入发布段"));
+    }
+
+    @Test
+    void modelReplyWithoutScoreCountsAsMissingNotZero() {
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(),
+                new StubGateway("{\"summary\": \"看着不太像抄\"}"));
+
+        assertThat(out.degraded()).isTrue();
+        assertThat(out.data()).doesNotContainKey("llmScore")
+                .containsEntry("method", "local-only");
+        assertThat((String) out.data().get("llmNote")).contains("similarityScore");
     }
 
     @Test
@@ -131,22 +169,28 @@ class OriginalityCheckNodeExecutorTest {
         NodeOutput out = run(Map.of("source", SOURCE, "generated", REPUNCTUATED), Map.of(), boom);
 
         assertThat(out.data()).containsEntry("method", "local-only");
+        assertThat((String) out.data().get("llmNote")).contains("模型调用失败");
         assertThat((int) out.data().get("localScore")).isGreaterThan(50);
     }
 
     @Test
-    void blankModelReplyFallsBackToLocalOnly() {
+    void blankModelReplyFallsBackToLocalOnlyButStaysFlagged() {
         NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), new StubGateway(null));
-        assertThat(out.data()).containsEntry("method", "local-only");
+
+        assertThat(out.data()).containsEntry("method", "local-only")
+                .containsEntry("llmNote", "模型没有返回内容");
+        assertThat(out.degraded()).isTrue();
     }
 
     @Test
     void useLlmFalseSkipsTheCall() {
         StubGateway gateway = new StubGateway(LLM_JSON);
+        // 主动关掉模型 = 只要本地口径，这是选择不是故障，不该被降级噪声淹没
         NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN, "useLlm", "false"), Map.of(), gateway);
 
         assertThat(gateway.last).isNull();
-        assertThat(out.data()).containsEntry("method", "local-only");
+        assertThat(out.data()).containsEntry("method", "local-only").doesNotContainKey("llmNote");
+        assertThat(out.degraded()).isFalse();
     }
 
     @Test
@@ -183,11 +227,9 @@ class OriginalityCheckNodeExecutorTest {
     }
 
     @Test
-    void extractJsonToleratesFencesAndCurlyQuotes() {
+    void extractJsonSlicesFencesAndPreamble() {
         assertThat(OriginalityCheckNodeExecutor.extractJson("好的：\n```json\n{\"similarityScore\": 12}\n```"))
                 .isEqualTo("{\"similarityScore\": 12}");
-        assertThat(OriginalityCheckNodeExecutor.extractJson("前缀 {“similarityScore”: 30} 后缀"))
-                .contains("\"similarityScore\": 30");
         assertThatThrownBy(() -> OriginalityCheckNodeExecutor.extractJson("没有对象"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -198,6 +240,46 @@ class OriginalityCheckNodeExecutorTest {
         assertThat(OriginalityCheckNodeExecutor.riskLevel(26)).isEqualTo("medium");
         assertThat(OriginalityCheckNodeExecutor.riskLevel(50)).isEqualTo("medium");
         assertThat(OriginalityCheckNodeExecutor.riskLevel(51)).isEqualTo("high");
+    }
+
+    /** 全角引号被模型当成 JSON 语法用：原样解析失败后必须退回替换版，否则这条腿整次评分都白跑。 */
+    @Test
+    void curlyQuotesUsedAsSyntaxStillGetScored() {
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), new StubGateway("""
+                结论如下 {“similarityScore”: 40, “summary”: “结构沿用”} 供参考"""));
+
+        assertThat(out.data()).containsEntry("llmScore", 40).containsEntry("method", "llm+local")
+                .doesNotContainKey("llmNote");
+        assertThat(out.degraded()).isTrue();
+    }
+
+    /**
+     * 值里摘录原文用的全角引号不能被替换掉：替换会把这份本来合法的 JSON 换碎，
+     * 执行 16/17 就是这样静默退回本地口径、给出误导性的 0 分。
+     */
+    @Test
+    void curlyQuotesInsideStringValuesKeepParsing() {
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(), new StubGateway("""
+                {"similarityScore": 33, "summary": "把“内耗”拆成三个开关",
+                 "similarFragments": [{"fragmentA": "“被需要”是一种燃料", "fragmentB": "“有用”才让人安心", "similarity": 70}]}"""));
+
+        assertThat(out.data()).containsEntry("llmScore", 33).containsEntry("method", "llm+local")
+                .doesNotContainKey("llmNote");
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Object>> frags =
+                (java.util.List<java.util.Map<String, Object>>) out.data().get("modelFragments");
+        assertThat(frags).hasSize(1);
+        assertThat((String) frags.get(0).get("fragmentA")).contains("“被需要”");
+    }
+
+    /** 报文压根不是 JSON 时，降级原因要带上报文头部，否则线上只能看见一个异常类名。 */
+    @Test
+    void unavailableModelKeepsReplyHeadInNote() {
+        NodeOutput out = run(Map.of("source", SOURCE, "generated", REWRITTEN), Map.of(),
+                new StubGateway("抱歉，我无法判断这两篇文章的相似度 {不完整"));
+
+        assertThat(out.degraded()).isTrue();
+        assertThat((String) out.data().get("llmNote")).contains("报文头部").contains("我无法判断");
     }
 
     @Test

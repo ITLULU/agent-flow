@@ -10,11 +10,17 @@ import com.agentflow.engine.spi.NodeInput;
 import com.agentflow.engine.spi.NodeOutput;
 import com.agentflow.nodes.FakeContentStore;
 import com.agentflow.nodes.StubHttp;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -212,5 +218,115 @@ class CoverImageNodeExecutorTest {
         assertThat(executor.type()).isEqualTo("image.cover");
         assertThat(executor.timeout().toSeconds()).isEqualTo(180);
         assertThat(executor.retryPolicy().maxAttempts()).isZero(); // 按次计费节点，禁止重试
+    }
+
+    // ---------- P4B：场景 / 画风 / 参考配方 / 四宫格 ----------
+
+    @Test
+    void sceneDrivesSizeAndComposedPrompt() throws Exception {
+        AtomicReference<String> submitted = new AtomicReference<>();
+        try (StubHttp stub = dashScopeMulti(1, PNG, submitted)) {
+            NodeOutput out = new CoverImageNodeExecutor("sk", stub.baseUrl(), new FakeContentStore())
+                    .execute(new NodeInput(params(Map.of("scene", "xhs-cover", "topic", "秋日咖啡馆",
+                            "promptStyle", "film", "referenceStyle", "creamy tones, soft window light")), Map.of()), CTX);
+
+            assertThat(submitted.get()).contains("\"size\":\"768*1024\"")
+                    .contains("秋日咖啡馆")
+                    .contains("creamy tones")        // 参考图配方进了正向提示词
+                    .contains("portra 400")          // 画风预设展开成英文风格词
+                    .contains("negative_prompt");    // 反 AI 味默认负向词已随请求发出
+            assertThat(out.data()).containsEntry("ratio", "3:4").containsEntry("size", "768*1024");
+        }
+    }
+
+    @Test
+    void customNegativePromptReachesDashScope() throws Exception {
+        AtomicReference<String> submitted = new AtomicReference<>();
+        try (StubHttp stub = dashScopeMulti(1, PNG, submitted)) {
+            new CoverImageNodeExecutor("sk", stub.baseUrl(), new FakeContentStore())
+                    .execute(new NodeInput(params(Map.of("scene", "wechat-cover", "topic", "季度复盘",
+                            "negativePrompt", "cartoon, 3d render")), Map.of()), CTX);
+            assertThat(submitted.get()).contains("\"negative_prompt\":\"cartoon, 3d render\"")
+                    .doesNotContain("plastic skin");
+        }
+    }
+
+    @Test
+    void collage2x2KeepsFourSinglesAndProducesGrid() throws Exception {
+        FakeContentStore store = new FakeContentStore();
+        byte[] tile = realPng(64, 64);
+        try (StubHttp stub = dashScopeMulti(4, tile, new AtomicReference<>())) {
+            NodeOutput out = new CoverImageNodeExecutor("sk", stub.baseUrl(), store)
+                    .execute(new NodeInput(params(Map.of("scene", "xhs-body", "topic", "桌面平铺",
+                            "collage", "2x2")), Map.of()), CTX);
+
+            assertThat(out.data()).containsEntry("count", 4).doesNotContainKey("collageError");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> collage = (Map<String, Object>) out.data().get("collage");
+            assertThat(collage).containsEntry("format", "2x2").containsEntry("ratio", "1:1")
+                    .containsEntry("localPath", ".staging/55/collage-2x2-1x1.png");
+            assertThat(((Number) collage.get("bytes")).intValue()).isGreaterThan(tile.length);
+            assertThat(store.log).hasSize(5); // 4 张单图 + 1 张拼图都落了暂存
+            assertThat(store.log.get(4)).startsWith("stage:55:collage-2x2-1x1.png:");
+        }
+    }
+
+    /** 拼图失败不许静默：单张照常交付，collageError 必须显性回吐（否则调用方以为"这次本就没拼图"）。 */
+    @Test
+    void collageFailureIsReportedNotSwallowed() throws Exception {
+        try (StubHttp stub = dashScopeMulti(4, PNG, new AtomicReference<>())) {
+            NodeOutput out = new CoverImageNodeExecutor("sk", stub.baseUrl(), new FakeContentStore())
+                    .execute(new NodeInput(params(Map.of("topic", "T", "collage", "2x2")), Map.of()), CTX);
+
+            assertThat(out.data()).containsEntry("count", 4).doesNotContainKey("collage");
+            assertThat(String.valueOf(out.data().get("collageError"))).contains("四宫格拼接失败");
+            assertThat(out.degraded()).isFalse(); // 单张仍在，不算整体降级
+        }
+    }
+
+    @Test
+    void collageWithFewerThanFourUrlsExplainsShortfall() throws Exception {
+        try (StubHttp stub = dashScopeMulti(2, PNG, new AtomicReference<>())) {
+            NodeOutput out = new CoverImageNodeExecutor("sk", stub.baseUrl(), new FakeContentStore())
+                    .execute(new NodeInput(params(Map.of("topic", "T", "collage", "2x2")), Map.of()), CTX);
+
+            assertThat(out.data()).containsEntry("count", 2).doesNotContainKey("collage");
+            assertThat(String.valueOf(out.data().get("collageError"))).contains("实际只拿到 2 张");
+        }
+    }
+
+    /** 多张结果的桩：results 数组给 count 条同端口 URL，图片字节统一回 imageBytes。 */
+    private static StubHttp dashScopeMulti(int count, byte[] imageBytes, AtomicReference<String> submitted)
+            throws Exception {
+        return new StubHttp(ex -> {
+            String path = ex.getRequestURI().getPath();
+            String self = "http://127.0.0.1:" + ex.getLocalAddress().getPort();
+            if (path.contains("image-synthesis")) {
+                submitted.set(StubHttp.readBody(ex));
+                StubHttp.respond(ex, 200, "{\"output\":{\"task_id\":\"task-multi\"}}");
+            } else if (path.startsWith("/api/v1/tasks/")) {
+                StringBuilder results = new StringBuilder();
+                for (int i = 1; i <= count; i++) {
+                    results.append(i > 1 ? "," : "").append("{\"url\":\"").append(self)
+                            .append("/img/").append(i).append(".png\"}");
+                }
+                StubHttp.respond(ex, 200,
+                        "{\"output\":{\"task_status\":\"SUCCEEDED\",\"results\":[" + results + "]}}");
+            } else {
+                StubHttp.respondBytes(ex, 200, imageBytes);
+            }
+        });
+    }
+
+    /** 真 PNG：拼图路径要 ImageIO 能解出来的字节，假字节只会走到 collageError 分支。 */
+    private static byte[] realPng(int w, int h) throws IOException {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(new Color(214, 122, 88));
+        g.fillRect(0, 0, w, h);
+        g.dispose();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ImageIO.write(img, "png", bos);
+        return bos.toByteArray();
     }
 }

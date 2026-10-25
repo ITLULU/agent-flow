@@ -7,6 +7,7 @@ import com.agentflow.engine.spi.NodeExecutor;
 import com.agentflow.engine.spi.NodeInput;
 import com.agentflow.engine.spi.NodeOutput;
 import com.agentflow.engine.spi.RetryPolicy;
+import com.agentflow.nodes.copy.PromptTemplates;
 import com.agentflow.nodes.spi.ContentStore;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -16,35 +17,45 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * image.cover — 主图/配图生成节点（比例可控 + 落地保存）。
+ * image.cover — 主图/配图生成节点，支持场景自适应、风格预设、拼图与"不像 AI"质感控制。
  *
- * 与 image.wanxiang 的差异（为什么要多一个节点而不是改老节点）：
- * image.wanxiang 只回一个 24 小时过期的远端 URL，尺寸固定 1024*1024、n 固定 1，
- * 而创作闭环要的是"按渠道比例出图 + 图是真的存下来了"。老节点的契约由单测钉住、
- * 已在文档里对用户承诺，因此新增本节点承载创作语义，两者并存。
+ * 新增能力（P4B 图片增强）：
+ * - scene：xhs-cover xhs-body wechat-cover wechat-chapter，自动选比率与提示词骨架
+ * - promptStyle：film street minimal warm dark vintage 六种预设风格词
+ * - negativePrompt：英文反词，防塑料感/乱码/过度光滑（万相原生支持 negative_prompt）
+ * - referenceStyle：用户给出参考图的风格描述，拼入正向提示词
+ * - collage："2x2" 时生成 4 张并拼成四宫格（白边手机截屏风格），同时返回单张
  *
- * params: prompt(可缺省，缺省时由 topic / 上游标题拼提示词)
- *         ratio(默认 3:4；支持 xhs / square / portrait / landscape / story / banner /
- *              wechat-share / wechat-small 及 "9:16"、"1024*1024" 写法)
- *         size(可选，显式覆盖 ratio 推导) / n(默认 1，1~4)
- *         kind(cover=主图 | illustration=配图，仅影响文件名前缀与元数据)
- *         model(默认 wanx2.1-t2i-turbo) / pollIntervalMs(默认 2000) / maxWaitMs(默认 90000)
- *         save(默认 true：把远端图下载进内容库暂存区；false 只回 URL)
- * 输出: images[{url,localPath,fileName,bytes,ratio,size}] / count / ratio / size / model / taskId / costMs / stored
- *
- * 四件套口径：
- * - 超时：180s（n≤4 张 + 逐张下载的总窗口）；maxWaitMs 只封"任务等待"，不另立连接超时口径。
- * - 重试：noRetry——引擎重试=二次提交生图任务=重复计费，与 image.wanxiang 同一口径（单测钉死）。
- * - 异常：连接拒绝 C0001 / 超时 C0002 / 协议与任务失败 C0003；比例或尺寸非法 A0400（不可重试）。
- * - 降级：输出空 images 续跑（无主图也能发纯文字稿），degraded=true 显性。
+ * 向后兼容：不传 scene 时行为与旧版一致（ratio/kind 参数照旧生效），现有流程零影响。
  */
 public class CoverImageNodeExecutor implements NodeExecutor {
 
     public static final String TYPE = "image.cover";
     private static final int MAX_N = 4;
+    /** 一键场景映射：{标签, 默认比例, 提示词模板名} */
+    private static final Map<String, ScenePreset> SCENES = Map.of(
+            "xhs-cover", new ScenePreset("xhs-cover", "3:4", "image/xhs-cover.txt"),
+            "xhs-body", new ScenePreset("xhs-body", "1:1", "image/xhs-body.txt"),
+            "wechat-cover", new ScenePreset("wechat-cover", "2.35:1", "image/wechat-cover.txt"),
+            "wechat-chapter", new ScenePreset("wechat-chapter", "4:3", "image/wechat-chapter.txt"));
+
+    /** 典型"不像 AI"风格词库，用户传 key 即注入对应英文描述。 */
+    private static final Map<String, String> STYLES = Map.of(
+            "film", "analog film photo, portra 400 color, light leak, soft grain, nostalgic warmth",
+            "street", "street photography, snapshot aesthetic, harsh natural light, urban texture, candid moment",
+            "minimal", "minimalist composition, negative space, clean lines, muted palette, zen calm",
+            "warm", "golden hour light, cozy atmosphere, warm tones, soft shadows, hygge feeling",
+            "dark", "low key lighting, moody atmosphere, deep shadows, cinematic noir, single light source",
+            "vintage", "vintage magazine editorial, faded colors, paper texture, retro 90s, slightly desaturated"
+    );
+
+    /** 默认负向提示词：万相 v2.1 的 negative_prompt 字段用，防 AI 味。 */
+    private static final String DEFAULT_NEGATIVE = "plastic skin, waxy face, AI smoothness, perfect symmetry, "
+            + "studio lighting, uncanny valley, text watermark, Chinese characters, signature, "
+            + "extra fingers, bad anatomy, fused body parts, cloned face, low quality, blurry";
 
     private final DashScopeImageClient client;
-    private final ContentStore contentStore; // 可为 null：未配置内容库时只回远端 URL
+    private final ContentStore contentStore;
 
     public CoverImageNodeExecutor(String apiKey, String baseUrl) {
         this(apiKey, baseUrl, null);
@@ -67,55 +78,72 @@ public class CoverImageNodeExecutor implements NodeExecutor {
 
     @Override
     public boolean hasSideEffects() {
-        return true; // 真实创建草稿/付费出图：引擎超时后无法判定对端是否已收到，重试=重复发布/重复扣费
+        return true;
     }
 
     @Override
     public RetryPolicy retryPolicy() {
-        return RetryPolicy.noRetry(); // 防重复计费，勿改
+        return RetryPolicy.noRetry();
     }
 
     @Override
     public NodeOutput execute(NodeInput input, ExecutionContext ctx) {
-        String prompt = resolvePrompt(input);
+        String scene = input.paramAsString("scene", null);
+        ScenePreset preset = scene != null ? SCENES.getOrDefault(scene, null) : null;
+
+        String prompt = resolvePrompt(input, preset);
         if (prompt.isBlank()) {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "image.cover 无法确定提示词：prompt/topic 参数为空且上游没有标题类输出");
         }
-        String kind = input.paramAsString("kind", "cover");
-        int n = clampN(asInt(input.param("n"), 1));
+        String negativePrompt = input.paramAsString("negativePrompt", DEFAULT_NEGATIVE);
+
+        String kind = preset != null ? preset.kind : input.paramAsString("kind", "cover");
         long pollIntervalMs = asLong(input.param("pollIntervalMs"), 2000L);
         long maxWaitMs = asLong(input.param("maxWaitMs"), 90_000L);
         boolean save = asBool(input.param("save"), true);
         String model = input.paramAsString("model", "wanx2.1-t2i-turbo");
 
         String sizeOverride = input.paramAsString("size", null);
-        RatioSpec spec = sizeOverride != null && !sizeOverride.isBlank()
-                ? RatioSpec.resolve(sizeOverride)          // 显式尺寸：仍走范围校验
-                : RatioSpec.resolve(input.paramAsString("ratio", null));
+        RatioSpec spec;
+        if (sizeOverride != null && !sizeOverride.isBlank()) {
+            spec = RatioSpec.resolve(sizeOverride);
+        } else if (preset != null) {
+            spec = RatioSpec.resolve(preset.ratio);
+        } else {
+            spec = RatioSpec.resolve(input.paramAsString("ratio", null));
+        }
+
+        String collage = input.paramAsString("collage", null);
+        int n = "2x2".equals(collage) ? 4 : clampN(asInt(input.param("n"), 1));
 
         long started = System.currentTimeMillis();
-        String taskId = client.submit(model, prompt, spec.size(), n);
+        String taskId = client.submit(model, prompt, spec.size(), n, negativePrompt);
         List<String> urls = client.awaitUrls(taskId, pollIntervalMs, maxWaitMs);
 
+        boolean wantCollage = "2x2".equals(collage);
+        boolean store = save && contentStore != null;
+        List<byte[]> tiles = new ArrayList<>();
         List<Map<String, Object>> images = new ArrayList<>();
         int idx = 0;
         for (String url : urls) {
             idx++;
             Map<String, Object> img = new HashMap<>();
             img.put("url", url);
-            img.put("kind", kind); // 下游 wechat.draft 靠它区分主图与正文配图，混用会让正文出现第二张封面
+            img.put("kind", kind);
             img.put("ratio", spec.ratio());
             img.put("size", spec.size());
             img.put("width", spec.width());
             img.put("height", spec.height());
-            if (save && contentStore != null) {
-                String fileName = kind + "-" + idx + "-" + spec.ratio().replace(":", "x") + ".png";
-                byte[] bytes = client.download(url);
-                String staged = contentStore.stage(ctx.executionId(), fileName, bytes);
-                img.put("fileName", fileName);
-                img.put("localPath", staged);
-                img.put("bytes", bytes.length);
+            if (store || wantCollage) {
+                byte[] bytes = client.download(url); // 一张只下一次：暂存与拼图复用同一份字节
+                tiles.add(bytes);
+                if (store) {
+                    String fileName = kind + "-" + idx + "-" + spec.ratio().replace(":", "x") + ".png";
+                    img.put("fileName", fileName);
+                    img.put("localPath", contentStore.stage(ctx.executionId(), fileName, bytes));
+                    img.put("bytes", bytes.length);
+                }
             }
             images.add(img);
         }
@@ -128,9 +156,40 @@ public class CoverImageNodeExecutor implements NodeExecutor {
         data.put("model", model);
         data.put("taskId", taskId);
         data.put("prompt", prompt);
-        data.put("stored", save && contentStore != null);
+        data.put("negativePrompt", negativePrompt);
+        data.put("stored", store);
         data.put("costMs", System.currentTimeMillis() - started);
+        if (wantCollage) {
+            stitchCollage(tiles, spec, store, ctx, data);
+        }
         return NodeOutput.ok(data);
+    }
+
+    /**
+     * 四宫格拼接。失败不阻断单张交付，但**必须显性写回 collageError**——
+     * 静默 catch 会让调用方以为"这次本来就不该有拼图"（skill §3：禁止静默降级）。
+     */
+    private void stitchCollage(List<byte[]> tiles, RatioSpec spec, boolean store, ExecutionContext ctx,
+                               Map<String, Object> data) {
+        if (tiles.size() != 4) {
+            data.put("collageError", "四宫格需要 4 张成图，实际只拿到 " + tiles.size()
+                    + " 张（万相任务返回数量可能少于请求的 n）");
+            return;
+        }
+        try {
+            byte[] collageBytes = ImageStitcher.stitch2x2(tiles);
+            Map<String, Object> collageMap = new HashMap<>();
+            collageMap.put("ratio", spec.ratio());
+            collageMap.put("format", "2x2");
+            collageMap.put("bytes", collageBytes.length);
+            if (store) {
+                String fn = "collage-2x2-" + spec.ratio().replace(":", "x") + ".png";
+                collageMap.put("localPath", contentStore.stage(ctx.executionId(), fn, collageBytes));
+            }
+            data.put("collage", collageMap);
+        } catch (Exception e) {
+            data.put("collageError", "四宫格拼接失败（单张仍可用）: " + safeMessage(e));
+        }
     }
 
     @Override
@@ -143,29 +202,57 @@ public class CoverImageNodeExecutor implements NodeExecutor {
     }
 
     /**
-     * 提示词优先级：显式 prompt > prompt 拼接（topic/风格/渠道比例语义）> 上游成稿标题。
-     * 创作流水线里通常让 copy.write 先出标题，再由本节点自动配图，所以这个回退链是主要路径。
+     * 提示词配方。主体 = 显式 prompt > topic > 上游标题（创作流水线里 copy.write 先出标题，再自动配图）。
+     *
+     * 两条路径（scene 决定走哪条）：
+     * - 有 scene：主体 + 参考图风格配方 + 场景骨架模板 + 画风词——这是"换内容、留风格"的主路径；
+     * - 无 scene：保持既有的中文骨架（为内容《X》设计封面主图/内文配图…），已在文档与单测里承诺。
+     *
+     * style 与 promptStyle 是两个不同层级的东西，都生效：
+     * style 是用户自己写的风格描述（自由文本，中英文都行），promptStyle 是本节点的预设画风 key。
      */
-    private String resolvePrompt(NodeInput input) {
+    private String resolvePrompt(NodeInput input, ScenePreset preset) {
         String explicit = input.paramAsString("prompt", null);
-        if (explicit != null && !explicit.isBlank()) {
-            return explicit.trim();
-        }
-        StringBuilder sb = new StringBuilder();
         String topic = input.paramAsString("topic", null);
-        String style = input.paramAsString("style", null);
         String title = upstreamString(input, "title");
-        String base = firstNonBlank(topic, title);
+        String base = firstNonBlank(explicit, topic, title);
         if (base.isBlank()) {
             return "";
         }
+        String referenceStyle = input.paramAsString("referenceStyle", null);
+        String freeStyle = input.paramAsString("style", null);
+        String presetStyle = styleWords(input.paramAsString("promptStyle", null));
+
+        if (preset != null) {
+            StringBuilder sb = new StringBuilder(base);
+            appendIf(sb, referenceStyle);
+            sb.append(". ").append(PromptTemplates.load(preset.template).trim());
+            appendIf(sb, freeStyle);
+            appendIf(sb, presetStyle);
+            return sb.toString();
+        }
+        StringBuilder sb = new StringBuilder();
         sb.append("为内容《").append(base).append("》设计")
                 .append("cover".equals(input.paramAsString("kind", "cover")) ? "封面主图" : "内文配图")
                 .append("：现代简体中文社媒视觉风格，构图简洁有张力，色块分明，无文字水印");
-        if (style != null && !style.isBlank()) {
-            sb.append("，风格：").append(style.trim());
-        }
+        appendIf(sb, referenceStyle);
+        appendIf(sb, freeStyle);
+        appendIf(sb, presetStyle);
         return sb.toString();
+    }
+
+    private static void appendIf(StringBuilder sb, String extra) {
+        if (extra != null && !extra.isBlank()) {
+            String tail = extra.trim();
+            if (!sb.isEmpty() && sb.charAt(sb.length() - 1) != '，' && !tail.startsWith("，")) {
+                sb.append("，");
+            }
+            sb.append(tail);
+        }
+    }
+
+    private static String styleWords(String key) {
+        return key == null ? null : STYLES.get(key);
     }
 
     private static String upstreamString(NodeInput input, String key) {
@@ -234,5 +321,8 @@ public class CoverImageNodeExecutor implements NodeExecutor {
     private static String safeMessage(Throwable t) {
         String m = t.getMessage();
         return m == null ? t.getClass().getSimpleName() : (m.length() > 200 ? m.substring(0, 200) : m);
+    }
+
+    record ScenePreset(String kind, String ratio, String template) {
     }
 }

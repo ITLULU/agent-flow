@@ -30,8 +30,15 @@ public class DashScopeImageClient {
 
     /** @return task_id */
     public String submit(String model, String prompt, String size, int n) {
+        return submit(model, prompt, size, n, null);
+    }
+
+    /** @return task_id，可传 negativePrompt 防 AI 塑料感 */
+    public String submit(String model, String prompt, String size, int n, String negativePrompt) {
+        String np = negativePrompt != null && !negativePrompt.isBlank()
+                ? ",\"negative_prompt\":\"" + escape(negativePrompt) + "\"" : "";
         String body = "{\"model\":\"" + model + "\",\"input\":{\"prompt\":\"" + escape(prompt)
-                + "\"},\"parameters\":{\"n\":" + n + ",\"size\":\"" + size + "\",\"prompt_extend\":true}}";
+                + "\"" + np + "},\"parameters\":{\"n\":" + n + ",\"size\":\"" + size + "\",\"prompt_extend\":true}}";
         JsonNode json = http.postJsonAndGet(baseUrl + SUBMIT_PATH, body,
                 "Authorization", "Bearer " + apiKey, "X-DashScope-Async", "enable");
         JsonNode taskId = json.path("output").path("task_id");
