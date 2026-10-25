@@ -127,5 +127,8 @@ curl -s -o cover.png "$BASE_URL/api/artifacts/3/file?path=assets/cover-1-3x4.png
 
 - `xhs.draft` 无官方公开草稿 API：默认只产出**小红书图文包**（标题/正文/话题/图片清单）落本地成品库；配 `endpoint` 才外发，失败记 warnings 不判 FAILED。
 - 热榜源结构变更最易表现为「取到 JSON 但零条目」，节点会显式记 `failedSources`；`endpointOverride` 可换源不改码。
+- `copy.write` 输出里的 `parseFallback=true` 表示**模型漏写了 `【正文】` 节**，节点取了回复中最长的一节兜底（标题/摘要这类短节已排除），`parseNote` 会写明来源；这种稿子能发但排版需人工看一眼，`false` 才是按约定分节解析成功的。
+- 外链改写链路（`article.extract → … → wechat.draft`）里，草稿的标题/正文**只认创作产物**（带 `body` 的那份上游输出），不会被采集节点的原文标题/原文正文盖掉——这条口径由 `WechatDraftNodeExecutorTest.creationOutputWinsOverIngestNodeWithSameKeys` 钉住（曾经误发原文进草稿箱）。
+- `--length` 是给模型的期望值，不是硬阈值：实测 `--length 1500` 交付过 848 字。要"不到字数就重试/标降级"需另加校验。
 - 引擎已支持同层并发（P7-3#18：按依赖分层、同层节点同时跑，宽度 `agentflow.engine.max-parallel-nodes` 默认 8）。本文推荐流水线是 a→b→c→e→f 单链，所以配图与主图仍逐个产出；想让两者并发就把它们挂成同一上游的两个兄弟节点（下游各自读上游输出，无需改代码）。
 - 真 key 联调：注入 `AI_API_KEY`（+ `WX_API_APPID/WX_API_SECRET`）后跑上面第 3 节命令即可。2026-10-25 实测：文案（21.1s）、封面（7.0s，万相真出图）、归档（16ms）三段 SUCCESS；`wechat.draft` 走到了微信服务端并回 `40125 invalid appsecret`——即凭证名已生效、链路已通，剩下的是公众号后台把 AppSecret 配对/重置。

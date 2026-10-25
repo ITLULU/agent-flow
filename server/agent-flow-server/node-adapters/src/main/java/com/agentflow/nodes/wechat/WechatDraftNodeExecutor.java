@@ -186,16 +186,11 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
         if (content != null && !content.isBlank()) {
             return toHtml(content);
         }
-        // 流水线回退：body（copy.write 成稿）→ content（llm.chat）→ text（http.collect / article.extract 原文）
-        for (Map<String, Object> out : orderedUpstream(input)) {
-            for (String key : new String[] {"body", "content", "text"}) {
-                Object c = out.get(key);
-                if (c != null && !String.valueOf(c).isBlank()) {
-                    return toHtml(String.valueOf(c));
-                }
-            }
-        }
-        return "";
+        // 流水线回退：body（copy.write 成稿）→ content（llm.chat）→ text（http.collect / article.extract 原文）。
+        // 键在外层、上游在内层：反过来的话，节点 id 字典序靠前的采集节点会先用它的原文 text 命中，
+        // 外链改写链路就会把原文正文当新稿发进草稿箱（2026-10-25 17:33 实测 draftMediaId 里就是原文）。
+        String found = upstreamValue(input, "body", "content", "text");
+        return found.isEmpty() ? "" : toHtml(found);
     }
 
     private String resolveThumbUrl(NodeInput input) {
@@ -256,13 +251,44 @@ public class WechatDraftNodeExecutor implements NodeExecutor {
     }
 
     private static String upstreamString(NodeInput input, String key) {
-        for (Map<String, Object> out : orderedUpstream(input)) {
-            Object v = out.get(key);
-            if (v != null && !String.valueOf(v).isBlank()) {
-                return String.valueOf(v).trim();
+        return upstreamValue(input, key);
+    }
+
+    /**
+     * 按"键的优先级"取上游值：先问创作产物（带 body 的那份输出 = copy.write 成稿），再按 id 字典序问其余上游。
+     * 创作产物优先是必须的：采集节点也带 title/text，仅按 id 排序会让原文盖掉新稿。
+     */
+    private static String upstreamValue(NodeInput input, String... keys) {
+        List<Map<String, Object>> upstreams = orderedUpstream(input);
+        Map<String, Object> creation = upstreams.stream()
+                .filter(out -> nonBlankValue(out, "body") != null)
+                .findFirst()
+                .orElse(Map.of());
+        for (String key : keys) {
+            String fromCreation = nonBlankValue(creation, key);
+            if (fromCreation != null) {
+                return fromCreation;
+            }
+            for (Map<String, Object> out : upstreams) {
+                if (out == creation) {
+                    continue;
+                }
+                String v = nonBlankValue(out, key);
+                if (v != null) {
+                    return v;
+                }
             }
         }
         return "";
+    }
+
+    private static String nonBlankValue(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() ? null : s;
     }
 
     private static String firstNonBlank(String... values) {

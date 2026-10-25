@@ -38,6 +38,8 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
     public static final String MODE_WECHAT = "wechat";
     public static final String MODE_XHS = "xiaohongshu";
     private static final int MAX_MATERIAL_CHARS = 12000;
+    /** 兜底取"最长一节"时的最小字数门槛：低于它就不敢认定那是正文，宁可整体交付。 */
+    private static final int MIN_BODY_CHARS = 200;
 
     private final Supplier<LlmGateway> gatewaySupplier;
 
@@ -93,10 +95,21 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
 
         Map<String, List<String>> sections = parseSections(reply.content());
         Map<String, Object> data = new HashMap<>();
-        boolean parseFallback = !sections.containsKey("标题") && !sections.containsKey("正文");
         String body = firstPresent(sections, "正文", "封面文案");
+        // 兜底口径按"正文拿没拿到"判，不按"有没有看到节名"判：模型把节名写歪（【全文】/漏写【正文】）时，
+        // 前者仍会静默交付空 body，而空 body 就是这条链路最坏的产出——下游要么无稿可归档，要么发一篇白稿进草稿箱。
+        boolean parseFallback = body.isBlank();
+        boolean longestSectionUsed = false;
         if (parseFallback) {
-            body = reply.content().trim();
+            // 漏写【正文】时，正文实际落在它后面那一节里（实测落进【金句】）。回复里最长的一节就是稿子本体
+            // （标题/摘要/标签都短），取它比"整段回复当正文"干净——后者会把【标题】【摘要】一起塞进公众号正文。
+            String longest = sections.values().stream()
+                    .map(CopyWriteNodeExecutor::join)
+                    .filter(v -> v.length() >= MIN_BODY_CHARS)
+                    .max(java.util.Comparator.comparingInt(String::length))
+                    .orElse("");
+            longestSectionUsed = !longest.isEmpty();
+            body = longestSectionUsed ? longest : reply.content().trim();
         }
         data.put("mode", mode);
         data.put("title", join(sections.get("标题")));
@@ -113,7 +126,9 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
             data.put("totalTokens", reply.totalTokens());
         }
         if (parseFallback) {
-            data.put("parseNote", "模型未按【标记】分节，已整体作为正文交付（标题留空，需人工补）");
+            data.put("parseNote", longestSectionUsed
+                    ? "回复里没有【正文】这一节，已取其中最长的节作为正文（标题/摘要类短节已排除），请核对排版与节名"
+                    : "模型未按【标记】分节，已把整段回复作为正文交付（标题留空，需人工补）");
         }
         return NodeOutput.ok(data);
     }
@@ -196,22 +211,35 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
         StringBuilder buf = new StringBuilder();
         for (String line : text.split("\r?\n")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\s*【(.+?)】\\s*(.*)$").matcher(line);
-            if (m.matches()) {
-                if (current != null) {
-                    sections.computeIfAbsent(current, k -> new ArrayList<>()).add(buf.toString().trim());
-                }
+            if (m.matches() && SECTION_MARKERS.contains(m.group(1).trim())) {
+                closeSection(sections, current, buf);
                 current = m.group(1).trim();
                 buf = new StringBuilder(m.group(2));
-                sections.computeIfAbsent(current, k -> new ArrayList<>());
             } else if (current != null) {
                 buf.append("\n").append(line);
             }
         }
-        if (current != null) {
-            sections.get(current).add(buf.toString().trim());
-        }
-        sections.values().removeIf(List::isEmpty);
+        closeSection(sections, current, buf);
         return sections;
+    }
+
+    /**
+     * 只有模板约定的节名才算分节标记。模型爱在正文里用【小标题】排版，若把它们也当标记，
+     * 【正文】这一节会在第一个小标题处被切断、后续内容全落到伪节里，节点便返回"SUCCESS 但 body 为空"
+     * （2026-10-25 17:29 外链改写链路实跑复现，下游 publish.local 直接无正文可归档）。
+     */
+    private static final java.util.Set<String> SECTION_MARKERS =
+            java.util.Set.of("标题", "副标题", "摘要", "正文", "标签", "金句", "封面文案");
+
+    /** 收尾一节：空内容不登记，避免留下"节存在但值为空串"这种既骗过 containsKey 又交付不了东西的中间态。 */
+    private static void closeSection(Map<String, List<String>> sections, String current, StringBuilder buf) {
+        if (current == null) {
+            return;
+        }
+        String value = buf.toString().trim();
+        if (!value.isEmpty()) {
+            sections.computeIfAbsent(current, k -> new ArrayList<>()).add(value);
+        }
     }
 
     private static String firstPresent(Map<String, List<String>> sections, String... keys) {

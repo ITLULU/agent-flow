@@ -15,6 +15,8 @@ application-local.yml
 
 # --- 本地数据目录（H2/PG 数据卷）---
 data/
+# run-creation.sh --out 默认目录：成品是产出物，不进版本库
+creation-out/
 *.mv.db
 *.trace.db
 pgdata/

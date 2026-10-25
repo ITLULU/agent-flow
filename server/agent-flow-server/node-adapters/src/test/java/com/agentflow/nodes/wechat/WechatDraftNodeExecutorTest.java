@@ -131,6 +131,32 @@ class WechatDraftNodeExecutorTest {
     }
 
     @Test
+    void creationOutputWinsOverIngestNodeWithSameKeys() {
+        // 外链改写链路 a(article.extract)→b(copy.write)→…→f(wechat.draft)：
+        // 上游按节点 id 字典序取第一个非空值时，a 的原文标题/原文正文会盖掉 b 的新稿，
+        // 草稿箱里躺着的就是一篇原文（2026-10-25 17:33 实跑踩到，draftMediaId 可查）。
+        NodeInput input = new NodeInput(Map.of(), Map.of(
+                "a", Map.of("title", "10个工作不内耗法则，让你无痛上班", "text", "原文第一段内容。"),
+                "b", Map.of("title", "10个不内耗开关，一按就松绑", "body", "新稿第一段。\n\n新稿第二段。",
+                        "digest", "新稿摘要")));
+        executor(Duration.ofSeconds(5)).execute(input, CTX);
+
+        String sent = wechat.draftBodies.get(0);
+        assertThat(sent).contains("10个不内耗开关，一按就松绑").contains("新稿第一段").contains("新稿摘要");
+        assertThat(sent).doesNotContain("让你无痛上班").doesNotContain("原文第一段内容");
+    }
+
+    @Test
+    void ingestTextStillUsedWhenNoCreationOutputExists() {
+        // 纯采集链路没有 copy.write 时，仍要能交付上游拿到的正文（键优先级回退不能变成"什么都不发"）
+        NodeInput input = new NodeInput(Map.of(), Map.of(
+                "a", Map.of("title", "采集到的原文标题", "text", "采集到的原文正文。")));
+        executor(Duration.ofSeconds(5)).execute(input, CTX);
+
+        assertThat(wechat.draftBodies.get(0)).contains("采集到的原文标题").contains("采集到的原文正文");
+    }
+
+    @Test
     void copyWriteOutputDrivesTitleAndParagraphs() {
         // 创作闭环里 wechat.draft 只接上游，不再让人手抄标题正文
         NodeInput input = new NodeInput(Map.of("digest", ""), Map.of(

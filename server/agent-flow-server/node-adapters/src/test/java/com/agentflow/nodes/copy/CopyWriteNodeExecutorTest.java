@@ -81,7 +81,70 @@ class CopyWriteNodeExecutorTest {
         assertThat(out.data()).containsEntry("parseFallback", true);
         assertThat(String.valueOf(out.data().get("body"))).startsWith("这就是模型随手写的一段话");
         assertThat(out.data()).containsEntry("title", "");
-        assertThat(String.valueOf(out.data().get("parseNote"))).contains("需人工补");
+        assertThat(String.valueOf(out.data().get("parseNote"))).contains("整段回复");
+    }
+
+    @Test
+    void missingBodyMarkerTakesLongestSectionNotWholeReply() {
+        // 实测形态：模型写完【金句】就直接开写正文，【正文】标记整个漏掉 ⇒ 稿子本体落在【金句】节里。
+        // 兜底必须取最长那一节，而不是整段回复——否则【标题】【摘要】会被一起发进公众号正文。
+        String longBody = "别当情绪翻译官。\n\n" + "你有没有过这种体验：领导发来一个句号，你立刻列了三页应对方案。".repeat(8);
+        String answer = """
+                【标题】10个不内耗开关
+                【摘要】职场消耗的不是时间，是反复校准他人反应的神经。
+                【标签】职场心理 自我管理
+                【金句】真正的清醒，是把"我在想什么"换成"我现在能做什么"。
+                """ + longBody;
+        NodeOutput out = run(Map.of("topic", "工作不内耗"), Map.of(), new StubGateway(answer));
+
+        assertThat(out.data()).containsEntry("parseFallback", true)
+                .containsEntry("title", "10个不内耗开关");
+        String body = String.valueOf(out.data().get("body"));
+        assertThat(body).contains("别当情绪翻译官");
+        assertThat(body).doesNotContain("【摘要】").doesNotContain("【标题】");
+        assertThat(String.valueOf(out.data().get("parseNote"))).contains("已取其中最长的节作为正文");
+    }
+
+    @Test
+    void bracketedSubHeadingsInsideBodyStayInBody() {
+        // 真实故障：模型爱在正文里用【小标题】排版，旧解析器把每个 【…】 都当分节标记，
+        // 【正文】节在第一个小标题处被切断 ⇒ 节点 SUCCESS 但 body 为空，下游 publish.local 无稿可归档。
+        String answer = """
+                【标题】10个工作不内耗法则
+                【摘要】把能量用在刀刃上。
+                【标签】职场心理 自我管理
+                【金句】注意力是唯一的资产。｜关掉脑子里的会议投影。
+                【正文】
+                【1. 把"老板没回消息"翻译成事实】
+                第一小节正文内容，讲的是解读方式。
+                【2. 给注意力签一份合同】
+                第二小节正文内容，讲的是边界感。
+                """;
+        NodeOutput out = run(Map.of("topic", "工作不内耗"), Map.of(), new StubGateway(answer));
+
+        assertThat(out.data()).containsEntry("parseFallback", false)
+                .containsEntry("title", "10个工作不内耗法则");
+        String body = String.valueOf(out.data().get("body"));
+        assertThat(body).contains("【1. 把\"老板没回消息\"翻译成事实】").contains("第二小节正文内容");
+        assertThat((int) out.data().get("wordCount")).isPositive();
+    }
+
+    @Test
+    void bodySectionWithOnlyUnknownMarkersStillDeliversBody() {
+        // 节名漂移（模型写成【全文】）时不能交付空 body：整体兜底 + parseFallback 显性留痕
+        String answer = """
+                【标题】一篇没有正文的稿子
+                【摘要】摘要正常。
+                【全文】
+                这里才是正文，节名不在约定清单里。
+                """;
+        NodeOutput out = run(Map.of("topic", "节名漂移"), Map.of(), new StubGateway(answer));
+
+        assertThat(out.data()).containsEntry("parseFallback", true);
+        assertThat(String.valueOf(out.data().get("body")))
+                .isNotBlank()
+                .contains("这里才是正文")
+                .contains("【标题】一篇没有正文的稿子");
     }
 
     @Test
