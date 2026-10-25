@@ -55,7 +55,7 @@
 
 - **现有 88 个依赖本来就走镜像**：`web/agent-flow-web/package-lock.json` 里 88 条 `resolved` 全是 `registry.npmmirror.com`（且 88 条都带 `sha512` `integrity`），文件已提交在 `459f44b`。所以 `npm ci` / 重装 `node_modules` **不受 registry 配置影响**，改成 npmjs 也不会重下。
 - **但 registry 从未落盘**：`npm config get registry` 返回 `https://registry.npmjs.org/`（因为四级 npmrc 都不存在）。⇒ 只有"新增包"和"将来重写 lockfile"这一步会先打 npmjs。
-- **实测延迟**（口径：完整拉一次 `vite` 的 packument（约 39MB），各 3 次采样，含代理与当日网络，不是统计结论）。命令：
+- **实测延迟**（口径：完整拉一次 `vite` 的 packument（约 39MB），各 3 次采样；走的是**直连**——curl 不读 macOS 系统代理，且采样时 127.0.0.1:7897 并未监听。不是统计结论）。命令：
   `for i in 1 2 3; do curl -s -o /dev/null -w '%{time_total}s %{size_download}B\n' https://registry.npmjs.org/vite; done`（镜像域名同理）
   ⇒ npmjs `7.80 / 8.24 / 8.31 s`，npmmirror `3.09 / 3.34 / 3.62 s`，镜像快 2 倍以上。注意这个包元数据特别大，小包差距会小些。
 - 结论：**建议设**（`npm config set registry https://registry.npmmirror.com`，写 `~/.npmrc`），它只影响解析、不改变已锁定包的字节（integrity 校验兜底）；代价是这份 lockfile 已经把**所有消费者（包括将来放开的 CI）绑到一个第三方镜像**上——镜像若不可用，`npm ci` 会一起失败，这属于可接受的已知耦合，但要心里有数。
