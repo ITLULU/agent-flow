@@ -37,8 +37,13 @@ jobs:
         # 为什么要单独钉：默认 profile 若退回文件库，"本地跑通"就不再等于"线上跑通"，
         # 而 24 个测试类各自 pin jdbc:h2:mem，CI 不会因此变红——这条是唯一的安全网。
         run: |
-          if ! grep -Eq '^    url: \$\{DB_URL:jdbc:postgresql' server-application/src/main/resources/application.yml; then
+          if ! grep -Eq '^    url: \$\{PG_DB_URL:jdbc:postgresql' server-application/src/main/resources/application.yml; then
             echo "默认 datasource.url 不再是 PostgreSQL（本地与线上必须同一套数据源），阻断"; exit 1
+          fi
+          # 占位符名字也必须一致是 PG_DB_*：compose 的 env 与 docker-entrypoint.sh 的 *_FILE 白名单用的是同一组名字，
+          # 任一处漂移的后果是容器形态拿不到口令（Flyway SCRAM 失败），而本地跑得一切正常。
+          if grep -Eq '\$\{DB_(URL|USER|PASSWORD)[}:]' server-application/src/main/resources/application.yml; then
+            echo "yml 里又出现旧名 DB_URL/DB_USER/DB_PASSWORD（应与 compose/entrypoint 一致用 PG_DB_*），阻断"; exit 1
           fi
           if grep -q 'org.h2.Driver' server-application/src/main/resources/application.yml; then
             echo "yml 里又出现 H2 驱动：H2 只允许出现在测试的 jdbc:h2:mem URL 里"; exit 1

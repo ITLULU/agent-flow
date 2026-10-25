@@ -12,11 +12,11 @@ spring:
   datasource:
     # 本地与线上共用同一份数据源定义：PostgreSQL 16（pgvector 镜像，compose 里叫 agent-flow-db）。
     # 这里刻意不再有 H2 分支——驱动、方言、Flyway 迁移、Hikari 池、SQL 行为与线上完全同路径，
-    # 本地跑通的就是线上跑的那套；DB_URL/DB_USER 的默认值只把"连哪个实例"外置，不把"用哪种库"外置。
-    # 缺 DB_PASSWORD 时 Flyway 会在建 bean 阶段就失败（"server requested SCRAM-based authentication, but no password
+    # 本地跑通的就是线上跑的那套；PG_DB_URL/PG_DB_USER 的默认值只把"连哪个实例"外置，不把"用哪种库"外置。
+    # 缺 PG_DB_PASSWORD 时 Flyway 会在建 bean 阶段就失败（"server requested SCRAM-based authentication, but no password
     # was provided"，端口还没绑、进程 exit 1），不会静默连到别的库——实测见 README §1.2。
-    url: ${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
-    username: ${PG_DB_USER:agentflow}
+    url: ${PG_DB_URL}
+    username: ${PG_DB_USER}
     password: ${PG_DB_PASSWORD:}
     # 不写 driver-class-name：交给 Spring 按 URL 前缀推断（jdbc:postgresql→PG 驱动）。
     # 写死会把"只覆盖 spring.datasource.url 的测试类"一起带走——它们连的是 H2。
@@ -140,7 +140,7 @@ spring:
     activate:
       on-profile: prod
   # 数据源不再在这里重复定义：本地=线上同一份（见文件头 datasource 段），prod 与默认的差别只有鉴权。
-  # 云主机用 DB_URL / DB_USER / DB_PASSWORD 三个 env 覆盖默认值，禁止写死进 yml。
+  # 云主机用 PG_DB_URL / PG_DB_USER / PG_DB_PASSWORD 三个 env 覆盖默认值，禁止写死进 yml。
 agentflow:
   security:
     enabled: true
