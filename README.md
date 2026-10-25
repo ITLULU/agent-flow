@@ -57,6 +57,14 @@ npm run build    # 直接输出到 server-application/src/main/resources/static�
 
 端口对照：**8080 = 后端 API + 打包后的画布静态页**，**5173 = vite dev 的画布**（改前端时用，代理到 8080）。`npm run build` 的产物目录是 Spring Boot 的 `resources/static`，所以 `ls dist` 必然为空，那不是失败。
 
+⚠️ **"进程在、端口在听，浏览器却无法访问"这一类先查协议族**：vite 默认 `host: 'localhost'`，而 Node 会把 `localhost` 解析成 `::1` 优先 ⇒ dev server 只绑 IPv6 回环。本机 Wi-Fi 的 **IPv6 是 Off**（`networksetup -getinfo Wi-Fi | grep -i ipv6`），任何 v6 连接直接失败，于是 5173 看着活着却谁都连不上。`vite.config.js` 已显式写 `server.host: '127.0.0.1'`（代理目标同理写 `127.0.0.1:8080`，否则页面能开而 `/api` 全挂）；**不要用 `host: true`**，那会绑 `0.0.0.0` 把 dev server 暴露到局域网。自检三行：
+
+```bash
+lsof -nP -iTCP:5173 -sTCP:LISTEN            # NAME 应是 127.0.0.1:5173；出现 [::1]:5173 就是绑错了族
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/     # 200 才算通
+curl -s http://localhost:5173/api/ping                              # pong = 前端→后端代理链路也通
+```
+
 ### 1.4 形态 B：本地进程连真 PG（compose 默认不发布端口，要加 override）
 
 `agent-flow-db` 只挂在 `my-custom-network` 上给容器用，**没有 `ports:`**——直接 `up -d agent-flow-db` 之后本地进程连不上，这是最容易空等的一处。实测可走的做法：
