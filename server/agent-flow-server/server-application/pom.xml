@@ -63,10 +63,12 @@
       <artifactId>flyway-database-postgresql</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- H2 只服务测试：默认 profile 与 prod 都用 PostgreSQL，runtime 里再带一份 H2 驱动
+         等于给"数据源被悄悄改回文件库"留后门，fat jar 也会白白多 2.5MB。 -->
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
-      <scope>runtime</scope>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.postgresql</groupId>

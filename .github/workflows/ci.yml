@@ -33,6 +33,27 @@ jobs:
             | grep -Eq '^[[:space:]]*enabled:[[:space:]]*(\$\{[A-Za-z0-9_]+:[[:space:]]*)?false\}?[[:space:]]*(#.*)?$' \
             || { echo "agentflow.security.enabled 的本地默认不再是 false，阻断"; exit 1; }
 
+      - name: 数据源口径冒断言（默认必须 PostgreSQL，H2 只允许留在测试里）
+        # 为什么要单独钉：默认 profile 若退回文件库，"本地跑通"就不再等于"线上跑通"，
+        # 而 24 个测试类各自 pin jdbc:h2:mem，CI 不会因此变红——这条是唯一的安全网。
+        run: |
+          if ! grep -Eq '^    url: \$\{DB_URL:jdbc:postgresql' server-application/src/main/resources/application.yml; then
+            echo "默认 datasource.url 不再是 PostgreSQL（本地与线上必须同一套数据源），阻断"; exit 1
+          fi
+          if grep -q 'org.h2.Driver' server-application/src/main/resources/application.yml; then
+            echo "yml 里又出现 H2 驱动：H2 只允许出现在测试的 jdbc:h2:mem URL 里"; exit 1
+          fi
+          # 锚在 <groupId>com.h2database</groupId> 与它自己的 </dependency> 之间，不用 grep -A3：
+          # 反向验过——旧写法在"补一行 <scope>runtime</scope> 但仍留着 test 那行"时漏报。
+          if ! awk '/com\.h2database/{f=1} f{print} f&&/<\/dependency>/{exit}' server-application/pom.xml \
+               | grep -q '<scope>test</scope>'; then
+            echo "h2 不再是 test scope（runtime 带 H2 驱动＝给数据源退回文件库留后门），阻断"; exit 1
+          fi
+          if awk '/com\.h2database/{f=1} f{print} f&&/<\/dependency>/{exit}' server-application/pom.xml \
+               | grep -Eq '<scope>(runtime|compile)</scope>'; then
+            echo "h2 依赖块里出现 runtime/compile scope，阻断"; exit 1
+          fi
+
       - name: 密钥泄漏扫描（禁止提交真实 key）
         run: |
           if grep -rEn "sk-[a-zA-Z0-9]{20,}" --include="*.yml" --include="*.json" --include="*.java" . ; then

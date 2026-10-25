@@ -25,9 +25,9 @@
 | JDK / 框架 | Java 21 + Spring Boot 3.5.x | 虚拟线程用于工作流执行器 |
 | 模型接入 | **Spring AI 1.x 唯一抽象层 + Spring AI Alibaba** | ⚠️ 不引入 LangChain4j：与 Spring AI 是竞争性抽象（两套 ChatModel/Tool/RAG），混用=双倍维护+依赖冲突。"链/图/记忆"思想由自研引擎表达 |
 | LLM Provider | 多模型可配置：`openai-compatible`（百炼 compatible-mode / DeepSeek / OpenAI 通用）+ `dashscope-native`（万相异步生图必须走原生协议） | 见 §5 LlmGateway |
-| 数据库 | 默认 profile：H2 文件库（零外部依赖可启动）；`-prod` profile：PostgreSQL 16 + pgvector 扩展 | pgvector 一期只装不用（RAG 节点二期激活），挂账 |
+| 数据库 | **默认 profile 即 PostgreSQL 16 + pgvector 扩展（本地与线上同一份定义，2026-10-25 改）**；H2 只保留在测试作用域（`jdbc:h2:mem`，`pom.xml` 里 scope=test） | pgvector 一期只装不用（RAG 节点二期激活），挂账。原设计是"默认 H2 文件库零依赖启动"，代价是本地验证的方言/Flyway 行为与线上不是同一套代码路径，已废止 |
 | 限流 | 实际交付：纯 JDK **固定窗计数**（`RateLimitFilter` 内 `ConcurrentHashMap`，桶键 = 主体/IP + 分钟），未引 Caffeine、无 `-redis` profile；阈值 `agentflow.security.rate-limit-per-minute`(120) 与 `rate-limit-auth-per-minute`(30，按客户端 IP 分桶) | 进程内计数只看得到本实例，跨实例限流仍要靠网关/Redis（README 限制表已挂账） |
-| schema 迁移 | Flyway（prod），H2 profile 用 `initSchema` 开关 | 禁止生产"启动即建表" |
+| schema 迁移 | Flyway（默认与 prod 都开，`spring.flyway.enabled=true`）；测试作用域用 `jdbc:h2:mem;MODE=PostgreSQL` 自建 | 禁止生产"启动即建表"之外的任何 schema 来源 |
 | 连接池 | HikariCP，`maximum-pool-size=20`，配置文件注明换算：20 连接 × 1 实例 << PG max_connections=100 | |
 | 爬虫/正文提取 | jsoup（显式超时+UA），正文可读化用 `net.dankito.readability4j` | 每个出网点走 §4.2 四件套基类 |
 | 定时触发 | Spring `@Scheduled` + 自建 cron 注册表（DB 持久化，重启恢复） | 不引入 Quartz（档位过重） |
@@ -109,7 +109,7 @@ public interface LlmGateway {
 | skill 节 | 落地物 | 验收 |
 |---|---|---|
 | 1 仓库 | `.gitignore`（含 `.env`/`*secret*`/`*.pem`/H2 数据目录）、README 四节、父 pom 只管版本 | 干净目录按 README 跑通 |
-| 2 配置 | 默认 profile=H2+内存缓存零依赖启动；`-prod`/`-redis` 独立 profile；每开关 yml=代码=文档三处一致 | 不启动任何中间件 `mvn spring-boot:run` 成功 |
+| 2 配置 | 默认 profile=PostgreSQL（本地=线上同一份数据源定义），`-prod` 只叠鉴权；缓存仍是进程内（`-redis` 可选 profile）；每开关 yml=代码=文档三处一致 | 起 `agent-flow-db` 容器 + 注入 `DB_PASSWORD` 后 `mvn -pl server-application spring-boot:run` 成功；CI 冒断言默认必须是 `jdbc:postgresql`、yml 里不出现 `org.h2.Driver`、H2 依赖 scope=test |
 | 3 外部调用 | `NodeExecutor` 基类四件套 + grep 无裸 builder | 三异常单测 CI 绿 |
 | 4 异常边界 | `@RestControllerAdvice`：`{code,message,traceId}`；入参 null/超长/路径穿越在过滤器兜底 | 故意 400/500 返回结构体 |
 | 5 安全 | JWT 鉴权过滤器骨架（`security.enabled` 开关默认 false 于 local）；credential 加密；SENSITIVE 端点清单（草稿发布/凭证写/执行触发）打注解标 | `security.enabled=true` 无 token 401 |
@@ -126,8 +126,8 @@ public interface LlmGateway {
 ### P0 仓库底座（0.5 天）
 1. `git init` + `.gitignore` + README 四节骨架
 2. 父 pom + 四模块空壳，`mvn compile` 通过
-3. server-application：启动类 + 默认 profile（H2）+ actuator + 全局异常 + traceId 过滤器 + 启动自检 Runner
-- **DoD**：零中间件启动成功，`/actuator/health` 200，故意 404 返回结构体
+3. server-application：启动类 + 默认 profile + actuator + 全局异常 + traceId 过滤器 + 启动自检 Runner（P0 当时默认 profile 是 H2；**2026-10-25 改为默认即 PostgreSQL**，见 §2.1 数据库行）
+- **DoD**：依赖（PG 容器）就绪时启动成功，`/actuator/health` 200，故意 404 返回结构体
 
 ### P1 引擎核心（3 天）
 1. DSL 模型类 + JSON 序列化（platform-common）

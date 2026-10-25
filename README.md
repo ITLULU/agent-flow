@@ -2,48 +2,63 @@
 
 自研 Agent 自动化工作流平台：可视化 DAG 编排（采集 → LLM 写作 → 生图 → 发布），Spring Boot 3.5 / Java 21 模块化单体 + Vue 3 画布。设计目标按生产上线标准（初期 10w 注册用户 / 3w DAU / 峰值 100 QPS），生产部署于云服务器。
 
-> 只想跑起来：**要起哪些容器见 §1.1**（本地默认形态 **0 个容器**），**后端命令 §1.2、前端命令 §1.3**；容器形态 §1.5 / §5。
+> 只想跑起来：**要起哪些容器见 §1.1**（本地默认形态 **1 个容器**：`agent-flow-db`），**后端命令 §1.2、前端命令 §1.3**；容器形态 §1.5 / §5。
 
 ## 1. 快速开始
 
 前置：JDK 21、Maven 3.9+、curl + jq；改前端另需 Node.js 20+（逐项版本见 `docs/TOOLS-CHECKLIST.md`，
-"哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 零外部中间件依赖，克隆即可启动。**
+"哪些是必须装 / 哪些必须给 key / 缺了会怎样"见 §2 的**三方依赖全景**）。**默认 profile 的数据源就是 PostgreSQL，本地与线上同一条代码路径**：起服务前必须先把 `agent-flow-db` 容器拉起来并注入 `DB_PASSWORD`（见 §1.2）。唯一不需要任何外部中间件的是 `mvn verify`——单测自带 `jdbc:h2:mem`，与运行时数据源无关。
 本服务只连四类外部东西：数据源、LLM+生图（DashScope）、公众号、对象存储；**精排 rerank 不在本服务**，它属于检索侧 `spring-ai-agent/rag-kb`。
 
 ### 1.1 先选形态：到底要起几个容器
 
 | 形态 | 要起的容器 | 数据源 | 什么时候用 |
 |---|---|---|---|
-| **A 本地默认 profile** | **0 个**（一个容器都不需要） | H2 文件库 `jdbc:h2:file:./data/agentflow`（`application.yml:14`，PostgreSQL 兼容模式），`./data` 已 gitignore | 改代码、跑测试、跑创作链路、画布开发 |
-| **A′ 本地进程 + 真 PG（不带鉴权）** | **1 个**：`agent-flow-db`（compose 已发布 `127.0.0.1:15432`） | `pg` profile：真 PG16 + `security.enabled: false` | 要验 PG 方言 / Flyway 真库行为，同时前端画布和 curl 都不想带 token |
-| **B 本地进程 + 真 PG（生产口径鉴权）** | **1 个**：`agent-flow-db` | prod profile + `DB_URL` 指向宿主发布端口 | 要连鉴权/密钥注入一起验 |
+| **A 本地默认 profile** | **1 个**：`agent-flow-db`（compose 已发布 `127.0.0.1:15432`） | 默认 profile = **PostgreSQL 16**（`application.yml` base 段），`security.enabled: false` | 改代码、跑创作链路、画布开发——**这就是日常形态**，与线上共用同一份数据源定义 |
+| **B 本地进程 + 生产口径鉴权** | **1 个**：`agent-flow-db` | 同一份 PG + prod profile 叠加 `security.enabled: true` | 要连鉴权/密钥注入一起验 |
 | **C 容器形态（生产同构）** | **2 个**：`agent-flow-db` + `agent-flow-server`；打开成品对象存储副本时再 **+1 个** `minio` | compose 注入的 `agent-flow-db:5432` | 交付、演示、按生产口径复验 |
+
+数据源在 2026-10-25 从「H2 文件库」改成了「默认即 PG」（见 `docs/PROGRESS.md` 当日条目）：**A′/pg profile 已随之删除**，不再有"本地走文件库、线上走 PG"两套 SQL 路径。H2 只留在测试里（`server-application/pom.xml` 已把它降为 `test` scope，fat jar 内不含 H2 驱动）。
 
 **明确不需要为 agent-flow 启动的容器**：`SpringCloudAdmin/docker-compose/` 下的 nacos、redis、mysql、rabbitmq、rocketmq(+dashboard)、kafka(+ui)、zookeeper、seata、sentinel、es(+kibana)、milvus、qdrant、rerank/rerank-gpu/rerank-mac，以及**独立的 `postgres`**（那个是 rag 侧 `rag` 库用的，本服务用的是 `agent-flow-db`）—— 这些要么是 `SpringCloudAdmin` 自己的微服务演示栈，要么是 rag-kb 的检索基建。**照目录名挨个 `up` 是最常见的一次误判**（Nacos 原本只是传递依赖，P7-3#12 已排除；rerank 本服务根本不连）。
 
 > 本机 Docker Desktop **不会自启**（`AutoStart=false` + 登录项 disabled），重启电脑后要先 `open -a Docker`，等 `docker info` 能通再起容器；`docker` CLI 在 `~/.docker/bin`。
 
-### 1.2 后端启动（形态 A：不启任何容器）
+### 1.2 后端启动（形态 A：默认 profile + 真 PG）
+
+**先起数据库，再起进程**——默认 profile 连的就是 `127.0.0.1:15432` 的 `agent-flow-db`：
+
+```bash
+cd /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow
+docker network inspect my-custom-network >/dev/null 2>&1 || bash ../network.sh   # 网络必须先存在
+docker compose up -d agent-flow-db                                                # 等 STATUS=healthy
+```
 
 ```bash
 export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home   # ~/.zshrc 默认把 JAVA_HOME 指到 JDK 8，不切就编不过
+export DB_PASSWORD="$(cat /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow/secrets/db_password)"
 cd server/agent-flow-server
 mvn -B install -DskipTests            # 先把 4 个模块装进本地仓库（单模块 spring-boot:run 依赖它）
-mvn -B verify                          # 全模块编译 + 单测/集成测试
-mvn -pl server-application spring-boot:run     # 启动（本地默认 profile）
+mvn -B verify                          # 全模块编译 + 单测/集成测试（测试自带 jdbc:h2:mem，不连容器）
+mvn -pl server-application spring-boot:run     # 启动（默认 profile，无需 --spring.profiles.active）
 # 或直接跑打包产物：java -jar server-application/target/server-application-0.1.0-SNAPSHOT.jar
 ```
 
-验证（2026-10-25 12:29 实测，全程 0 容器）：
+`DB_URL` / `DB_USER` 有默认值（`127.0.0.1:15432/agentflow`、`agentflow`），**只有 `DB_PASSWORD` 必须注入**。缺它不会静默连到别的库：Flyway 在 bean 创建阶段就失败，日志 `The server requested SCRAM-based authentication, but no password was provided`，进程 `exit 1`，端口根本不绑（实测见下）。
+
+IntelliJ 里等价改法：Run Config 的 Environment variables 加 `DB_PASSWORD=<secrets/db_password 的内容>`，**Program arguments 不需要任何 profile 参数**（2026-10-25 之前那行 `--spring.profiles.active=pg` 已作废，profile `pg` 已删除）。
+
+验证（2026-10-25 16:40 实测，1 容器）：
 
 ```bash
 curl -s http://localhost:8080/actuator/health/liveness   # {"status":"UP"}
 curl -s http://localhost:8080/api/ping                   # {"code":"0",...,"data":"pong"}
 ```
 
-实测输出：`Started AgentFlowApplication in 2.593s`、自检 `security.enabled: false`，`GET /api/ping` 200 `pong`、`GET /api/workflows` 200。
+实测输出：`Database: jdbc:postgresql://127.0.0.1:15432/agentflow (PostgreSQL 16.15)`、`active profiles : []`、自检 `datasource : jdbc:postgresql://127.0.0.1:15432/agentflow` + `security.enabled: false`、`Started AgentFlowApplication in 2.508s`；`readiness` UP、`/api/ping` `pong`、跑一条创作链路后 `psql` 查到 `workflow=1 execution=1 artifact=1 node_log=2`（写路径确认落在 PG）。
+反向验：`env -u DB_PASSWORD` 启动 → `exit=1`、8082 零监听、`data/agentflow.mv.db` 一个都没生成。
 
-⚠️ **同一条命令在不同形态下结论不同，别据此误判服务坏了**：`security.enabled=true` 时（形态 B/C 的 prod）`/api/ping` 与 `/api/workflows` 都需要身份，**无 token 返回 401 是设计如此**——`EndpointSensitivityContractTest.java:42` 把 `GET /api/ping` 钉成 `USER` 级；`/actuator/health/liveness|readiness` 仍可匿名读。刚重启的机器上如果 8080 连不上，先确认进程在不在（形态 A 没有任何容器提示你）。
+⚠️ **同一条命令在不同形态下结论不同，别据此误判服务坏了**：`security.enabled=true` 时（形态 B/C 的 prod）`/api/ping` 与 `/api/workflows` 都需要身份，**无 token 返回 401 是设计如此**——`EndpointSensitivityContractTest.java:42` 把 `GET /api/ping` 钉成 `USER` 级；`/actuator/health/liveness|readiness` 仍可匿名读。刚重启的机器上如果 8080 连不上，先确认 `agent-flow-db` 在不在（进程和库都不在时，日志第一条失败就是 Flyway 连接异常，不是端口问题）。
 
 ### 1.3 前端启动
 
@@ -66,31 +81,15 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/     # 200 才算
 curl -s http://localhost:5173/api/ping                              # pong = 前端→后端代理链路也通
 ```
 
-### 1.4 形态 A′/B：本地进程连真 PostgreSQL（compose 已发布端口，无需 override）
+### 1.4 端口发布与形态 B（本地进程 + prod 鉴权）
 
-`agent-flow-db` 现在自带 `ports: 127.0.0.1:${AGENTFLOW_DB_HOST_PORT:-15432}:5432`（2026-10-25 16:01 起）。**只绑 127.0.0.1**：这个库的口令是 `secrets/db_password`，绑 `0.0.0.0` 等于把 PG 开放给整个局域网；不占 5432 是因为同网络的独立 `postgres` 服务用它，两个 compose 同时 `up` 会撞端口。要换宿主端口：`AGENTFLOW_DB_HOST_PORT=25432 docker compose up -d agent-flow-db`。
+`agent-flow-db` 自带 `ports: 127.0.0.1:${AGENTFLOW_DB_HOST_PORT:-15432}:5432`（2026-10-25 16:01 起）。**只绑 127.0.0.1**：这个库的口令是 `secrets/db_password`，绑 `0.0.0.0` 等于把 PG 开放给整个局域网；不占 5432 是因为同网络的独立 `postgres` 服务用它，两个 compose 同时 `up` 会撞端口。要换宿主端口：`AGENTFLOW_DB_HOST_PORT=25432 docker compose up -d agent-flow-db`（改了默认值，`DB_URL` 也要跟着改）。
 
-```bash
-cd /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow
-docker network inspect my-custom-network >/dev/null 2>&1 || bash ../network.sh   # 网络必须先存在
-docker compose up -d agent-flow-db                                               # healthy 后即可连
-```
+**本地客户端连库**（DBeaver / IDEA Database / psql）：Host `127.0.0.1`、Port `15432`、Database `agentflow`、User `agentflow`、Password 取 `secrets/db_password`。容器之间仍走服务名 `agent-flow-db:5432`，不绕宿主端口。
 
-**A′（推荐做本地验证）**：`pg` profile = 真 PG + 鉴权关闭，只有 `DB_PASSWORD` 必须注入（URL/用户名有默认值），跑起来前端和 curl 都无需 token：
+**B（连鉴权一起验）**：prod profile 只叠加 `security.enabled=true`（数据源定义与默认完全相同，见 `application.yml` 文件头），需再给 `AGENTFLOW_JWT_SECRET` / `AGENTFLOW_MASTER_KEY`，此后所有 `/api/**` 无 token 返回 401 是设计如此：
 
 ```bash
-export JAVA_HOME=/Users/a/tools/jdk-21.0.12.1+1/Contents/Home
-export DB_PASSWORD="$(cat /Users/a/source/SpringCloudAdmin/docker-compose/agent-flow/secrets/db_password)"
-java -jar /Users/a/source/agent-flow/server/agent-flow-server/server-application/target/server-application-0.1.0-SNAPSHOT.jar \
-  --spring.profiles.active=pg
-```
-
-IntelliJ 里等价改法：Run Config 的 Program arguments 加 `--spring.profiles.active=pg`，Environment variables 加 `DB_PASSWORD=<secrets/db_password 的内容>`。想退回 H2 只需去掉这一行参数——`pg` profile 只是叠加文档，不动默认 profile。
-
-**B（连鉴权一起验）**：prod profile 强制 `security.enabled=true`，需再给 `AGENTFLOW_JWT_SECRET` / `AGENTFLOW_MASTER_KEY`，此后所有 `/api/**` 无 token 返回 401 是设计如此：
-
-```bash
-export DB_URL=jdbc:postgresql://127.0.0.1:15432/agentflow DB_USER=agentflow
 export DB_PASSWORD="$(cat secrets/db_password)"
 export AGENTFLOW_JWT_SECRET="$(cat secrets/jwt_secret)" AGENTFLOW_MASTER_KEY="$(cat secrets/master_key)"
 java -jar .../server-application-0.1.0-SNAPSHOT.jar --spring.profiles.active=prod
@@ -98,11 +97,7 @@ java -jar .../server-application-0.1.0-SNAPSHOT.jar --spring.profiles.active=pro
 
 B 的既有实测（2026-10-25 12:28，当时靠 `/tmp/override-devdb.yml` 发布端口，现由 compose 自带）：`Started ... in 2.523s`、`security.enabled: true`、`readiness` UP、public 9 张表、`flyway_schema_history` 全 `success=t`。
 
-**本地客户端连库**（DBeaver / IDEA Database / psql）：Host `127.0.0.1`、Port `15432`、Database `agentflow`、User `agentflow`、Password 取 `secrets/db_password`。
-
-实测（2026-10-25 16:02，pg profile，8081）：日志 `Database: jdbc:postgresql://127.0.0.1:15432/agentflow (PostgreSQL 16.15)`、`active profiles : [pg]`、`security.enabled: false`、`Started in 2.968s`；`readiness` UP、匿名 `/api/ping` 200 `pong`、`/api/workflows` 返回空（库里 9 张表刚建好，与 H2 里那条 workflow 互不可见）；`POST /api/workflows` 建一条后 `psql` 查到 `1 / pg-write-probe / v1`，写路径确认落在 PG；随后按 `DELETE 1` 清探针 + 停进程，只留 `agent-flow-db` healthy。
 明文 env **只为本地验证**；容器/生产一律走 `*_FILE` secret（见 §5 与 compose 注释），密钥不进 yml、不进命令行、不进 `docker inspect`。
-⚠️ 换 profile 就是换库，不是换 schema：PG 里没有 H2 攒下的工作流，成品库表也从零开始（`data/library/` 的磁盘文件不会自动变成 DB 行）。要清掉 PG 重来：`docker compose down -v` 不管用（数据是绑定挂载 `./data/pg`），得删该目录或 `psql` 逐表 truncate。
 
 ### 1.5 形态 C：整条链路都进容器
 
@@ -156,10 +151,8 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `agentflow.security.rate-limit-auth-per-minute` | `30` | `/api/auth/**`（注册/登录）单独阈值，**按客户端 IP 分桶**。拆桶原因：原先匿名与服务通道同挤 uid=0 一个桶，刷登录接口就能把两者一起打满（评审 P6 #6） |
 | `agentflow.security.trust-forwarded-for` | `false` | 打开后才用 `X-Forwarded-For` 第一段当客户端 IP。**只有前面那层反代会覆盖该头时才能开**，否则攻击者伪造 XFF 即可绕开 IP 桶；不开时全部来源都算反代 IP，auth 桶会退化成单桶 |
 | `agentflow.schedule.tick-ms` | `15000` | cron 扫描节拍；测试/多实例调大避免抢发 |
-| `spring.datasource.url`（默认 profile） | `jdbc:h2:file:./data/agentflow;MODE=PostgreSQL;...` | 本地不改；删 `data/*.mv.db` 即重建库 |
-| `spring.datasource.*`（prod profile） | `${DB_URL}/${DB_USER}/${DB_PASSWORD}` | 云服务器 env 注入 PG16，禁止写死 |
-| `spring.datasource.*`（pg profile） | URL 默认 `jdbc:postgresql://127.0.0.1:15432/agentflow`、用户默认 `agentflow`、`${DB_PASSWORD}` 无默认 | 形态 A′：本地进程连真 PG 但不带鉴权（`security.enabled: false`）。口令只从 env 给，故意不留默认值——解不出来就在启动时报错，好过连上后再吃一个 28P01 认证失败 |
-| `spring.datasource.hikari.maximum-pool-size`（prod） | `20` | 多实例部署时按总连接÷PG max_connections 重摊。硬约束式：**实例数 × pool-size ≤ `max_connections` × 0.8**（PG 默认 100 ⇒ 2 实例×20 有余量，5 实例×20 就打满，第 6 个实例连接排队）。配额（#11）管的是同时跑几条执行，管不了连接池总量；要突破这个天花板要么调 PG `max_connections`，要么上 PgBouncer（本机未部署，属十万档） |
+| `spring.datasource.*`（默认 profile = 线上同一份） | `${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}` / `${DB_USER:agentflow}` / `${DB_PASSWORD:}` | **本地与 prod 共用这一份定义，prod 段不再重复声明数据源**。`DB_URL`/`DB_USER` 的默认值只把"连哪个实例"外置，不把"用哪种库"外置；口令刻意留空默认——解不出来就在启动时报错（Flyway SCRAM 失败、进程 exit 1），好过连上后再吃一个 28P01。云服务器用三个 env 覆盖，禁止写死进 yml |
+| `spring.datasource.hikari.maximum-pool-size`（默认与 prod 共用） | `20` | 多实例部署时按总连接÷PG max_connections 重摊。硬约束式：**实例数 × pool-size ≤ `max_connections` × 0.8**（PG 默认 100 ⇒ 2 实例×20 有余量，5 实例×20 就打满，第 6 个实例连接排队）。配额（#11）管的是同时跑几条执行，管不了连接池总量；要突破这个天花板要么调 PG `max_connections`，要么上 PgBouncer（本机未部署，属十万档） |
 | `spring.flyway.enabled` | `true` | 不要改：schema 只允许迁移文件演进 |
 | `management.endpoint.health.probes.enabled` | `true` | 不要改：liveness/readiness 分离是 compose 健康检查依赖 |
 | `AGENTFLOW_MASTER_KEY`（环境变量） | 未设置 | 已在 P3 接入（yml 映射到 `agentflow.security.master-key`）；生产上线前必须注入 base64(32B) 主密钥 |
@@ -236,7 +229,7 @@ RocketMQ / Seata / Sentinel / Kafka 都是 `SpringCloudAdmin` 自己的微服务
 | **微信公众号开放接口** | 草稿/素材发布：`cgi-bin/token`、`cgi-bin/material/add_material`、`cgi-bin/draft/add`（application.yml:64-67） | ❌ 需要公众号 app-id/secret，且**调用方出口 IP 要加白名单** | 空凭证不阻塞启动；`wechat.draft` 执行期失败。本地用 `publish.local` 出成品包代替，不碰平台 |
 | **小红书** | `xhs.draft` 默认只生**本地图文包**（`channel=xhs-local-package`）；接开放平台才需 `credentialId` 从凭证库取 token（`XhsDraftNodeExecutor.java:30`） | ✅ 默认路径零外部依赖 | 不接开放平台不影响交付物；接了则凭证缺失/越权时报错，舱壁 `xhs: max-concurrent 4` |
 | **热点榜四个公开源** | `hot.topic.fetch` 默认 `weibo,baidu,toutiao,zhihu`（`HotTopicFetchNodeExecutor.java:69-86`），单源失败只进 `failedSources` | ⚠️ 半可：节点支持 `endpointOverride` 换成自建/桩地址，换源不改代码 | 全挂则本次无热点，不影响其他节点。注意这四个是**公开网页接口，无 SLA、可能改字段或反爬**，别当生产依赖记账 |
-| **PostgreSQL 16 + pgvector** | prod（:132-134 `${DB_URL}`）与 pg（:155-167）两个 profile 的主数据源；默认 profile 仍是 H2 文件库 `./data/agentflow`（:14） | ✅ 本地 `pgvector/pgvector:pg16` 容器，compose 已带并把它发布成 `127.0.0.1:15432` | 默认 profile 起不来不影响本地跑（H2 够用）；pg/prod profile 连不上则 readiness DOWN |
+| **PostgreSQL 16 + pgvector** | **默认 profile 与 prod 共用同一份数据源**（`application.yml:12` base 段，prod 段只叠鉴权）；H2 只存在于测试作用域（`server-application/pom.xml` test scope，fat jar 不含） | ✅ 本地 `pgvector/pgvector:pg16` 容器，compose 把它发布成 `127.0.0.1:15432` | **起服务前必须先 `docker compose up -d agent-flow-db`**：连不上 PG 就不绑端口、进程 exit 1，readiness 也无从谈起 |
 | **S3 兼容对象存储** | 成品远端副本，`AGENTFLOW_STORAGE_*`（:76-86） | ✅ 本地 MinIO（`http://minio:9000`）已按生产同形态验过 | `enabled=false` 时一个字节不出网、也不建客户端；`enabled=true` 但配置不齐 = **启动即退出**（故意的 fail-fast） |
 | **成品库目录** | 所有产物读写被约束在此目录内（`JdbcContentStore.resolveInside`，:71） | ✅ 默认 `./data/library` | 目录不可写 ⇒ 启动自检打 ERROR，`publish.local`/`xhs.draft` 执行失败（`StartupSelfCheck.java:104`） |
 | **JDK 21 / Maven 3.10 / Node 22** | 编译运行（虚拟线程需 21）、Vue `^3.5.44` + Vite 5.4.21 前端 | ✅ 三者都在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21。Node 已在 `~/.zshrc:35` 进 PATH，**新开终端可直接 `node -v`**；但环境快照早于该时刻的进程（如内嵌的 agent shell）里 `node` 仍不可见，此时**用绝对路径调 `npm` 会因 `env: node: No such file or directory` 失败**（npm 的 shebang 是 `#!/usr/bin/env node`），需先 `export PATH="$HOME/tools/node22/bin:$PATH"` |
@@ -339,7 +332,7 @@ PG chunk store（`application-persistent.yml:5`）、可选 Milvus（本机 v2.4
 
 **唯一一套 compose 维护在 `SpringCloudAdmin/docker-compose/agent-flow/docker-compose.yml`**（与 mysql/qdrant/nacos 同目录风格、同挂 `my-custom-network`）。该文件自包含：只消费镜像 `agentflow/server:0.1.0`，秘密与数据都在 compose 目录下，不引用本仓库任何路径。
 
-两个服务：`agent-flow-db`（pgvector/pg16，宿主侧只绑 `127.0.0.1:15432`，供本地客户端连库；容器之间仍走 `agent-flow-db:5432`）+ `agent-flow-server`（prod profile，8080）。数据用目录挂载（compose 目录下 `data/pg`、`data/library`），容器重建不丢。
+两个服务：`agent-flow-db`（pgvector/pg16，宿主侧只绑 `127.0.0.1:15432`——既是本地进程的默认连接目标，也给 DBeaver/psql 连库；容器之间仍走 `agent-flow-db:5432`）+ `agent-flow-server`（prod profile，8080）。数据用目录挂载（compose 目录下 `data/pg`、`data/library`），容器重建不丢。
 
 ```bash
 # 1) 在本仓库构建镜像（改了 Java 代码才需要重跑）

@@ -47,6 +47,7 @@ public class StartupSelfCheck implements ApplicationRunner {
         log.info("=== agent-flow 启动自检 ===");
         log.info("active profiles : {}", Arrays.toString(env.getActiveProfiles()));
         log.info("server port     : {}", env.getProperty("server.port", "8080"));
+        log.info("datasource      : {}", env.getProperty("spring.datasource.url", "(默认)"));
         log.info("security.enabled: {}", securityProps.enabled());
         log.info("AGENTFLOW_MASTER_KEY present : {} (kid={})",
                 !securityProps.masterKey().isBlank(), masterKeyId());

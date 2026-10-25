@@ -10,11 +10,21 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 20s
   datasource:
-    # 本地默认：H2 文件库（PostgreSQL 兼容模式），零外部中间件可启动；数据文件在 ./data（已 gitignore）
-    url: jdbc:h2:file:./data/agentflow;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
-    username: sa
-    password: ""
-    driver-class-name: org.h2.Driver
+    # 本地与线上共用同一份数据源定义：PostgreSQL 16（pgvector 镜像，compose 里叫 agent-flow-db）。
+    # 这里刻意不再有 H2 分支——驱动、方言、Flyway 迁移、Hikari 池、SQL 行为与线上完全同路径，
+    # 本地跑通的就是线上跑的那套；DB_URL/DB_USER 的默认值只把"连哪个实例"外置，不把"用哪种库"外置。
+    # 缺 DB_PASSWORD 时 Flyway 会在建 bean 阶段就失败（"server requested SCRAM-based authentication, but no password
+    # was provided"，端口还没绑、进程 exit 1），不会静默连到别的库——实测见 README §1.2。
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
+    username: ${DB_USER:agentflow}
+    password: ${DB_PASSWORD:}
+    # 不写 driver-class-name：交给 Spring 按 URL 前缀推断（jdbc:postgresql→PG 驱动）。
+    # 写死会把"只覆盖 spring.datasource.url 的测试类"一起带走——它们连的是 H2。
+    hikari:
+      # 定容依据：峰值 100 QPS × 平均查询 20ms ≈ 2 并发连接，工作流执行写入另有异步闸门（Semaphore 16）；
+      # 20 为单实例上限的稳妥值，多实例部署时按总连接数÷PG max_connections 重新分推（见 IMPLEMENTATION-PLAN §9）
+      maximum-pool-size: 20
+      connection-timeout: 3000
   flyway:
     enabled: true
 
@@ -129,17 +139,8 @@ spring:
   config:
     activate:
       on-profile: prod
-  # 生产：PostgreSQL 16（云数据库或 compose 内 pgvector 容器），连接串/账号密码全部 env 注入，禁止写死
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
-    hikari:
-      # 定容依据：峰值 100 QPS × 平均查询 20ms ≈ 2 并发连接，工作流执行写入另有异步闸门（Semaphore 16）；
-      # 20 为单实例上限的稳妥值，多实例部署时按总连接数÷PG max_connections 重新分推（见 IMPLEMENTATION-PLAN §9）
-      maximum-pool-size: 20
-      connection-timeout: 3000
+  # 数据源不再在这里重复定义：本地=线上同一份（见文件头 datasource 段），prod 与默认的差别只有鉴权。
+  # 云主机用 DB_URL / DB_USER / DB_PASSWORD 三个 env 覆盖默认值，禁止写死进 yml。
 agentflow:
   security:
     enabled: true
@@ -147,21 +148,3 @@ agentflow:
     # 缺 JWT 密钥启动即失败，缺主密钥仅凭证库不可用（A0400 降级面容错）
   # nodes.* 继承默认段：prod 仍由同一组环境变量注入（BAILIAN_API_KEY/WECHAT_APPID/WECHAT_SECRET），
   # 差异仅在于云主机需出网白名单：dashscope.aliyuncs.com / api.weixin.qq.com（见 TOOLS-CHECKLIST 云服务段）
-
----
-# 形态 A′「本地进程 + 真 PG，但不带鉴权」：与 prod 的差别只有 security.enabled=false。
-# 为什么单独开一档而不是直接用 prod：prod 强制鉴权后本地 curl/画布都要先拿 token，
-# 而"验证真 PG 方言 / Flyway 真库行为"这件事本身与鉴权无关，没必要为此背一套密钥注入。
-# DB_PASSWORD 刻意不给默认值——占位符解不出来会在启动时直接报错，好过连上后 28P01 认证失败再猜。
-spring:
-  config:
-    activate:
-      on-profile: pg
-  datasource:
-    url: ${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
-    username: ${DB_USER:agentflow}
-    password: ${DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
-agentflow:
-  security:
-    enabled: false
