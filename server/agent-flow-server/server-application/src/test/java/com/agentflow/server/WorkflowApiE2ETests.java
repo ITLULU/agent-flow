@@ -27,6 +27,9 @@ class WorkflowApiE2ETests {
     @Autowired
     TestRestTemplate rest;
 
+    @Autowired
+    org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     private static final String TWO_ECHO_DSL = """
             {
               "name": "双echo链",
@@ -124,6 +127,44 @@ class WorkflowApiE2ETests {
         assertThat(resp.getBody()).contains("\"code\":\"A0404\"")
                 .contains("\"message\":\"资源不存在: workflow 999999\"")
                 .doesNotContain("资源不存在: 资源不存在");
+    }
+
+    /**
+     * 画布"删除"是逻辑删除：列表消失 + 所有读写入口一律 404，但行与 DSL 留在库里。
+     * 后半段的"库里还在"是关键——只测前端看不看得到，等于把"删除"偷偷做成了物理删。
+     */
+    @Test
+    void softDeleteHidesEverywhereButKeepsTheRow() {
+        long id = extractLong(postJson("/api/workflows", TWO_ECHO_DSL).getBody(), "workflowId");
+        assertThat(rest.getForObject("/api/workflows", String.class)).contains("\"id\":" + id);
+
+        ResponseEntity<String> deleted = rest.exchange("/api/workflows/" + id, HttpMethod.DELETE,
+                new HttpEntity<>(new HttpHeaders()), String.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(deleted.getBody()).contains("\"deleted\":true");
+
+        // 列表不再出现（admin/属主同一 SQL，不靠前端藏）
+        assertThat(rest.getForObject("/api/workflows", String.class)).doesNotContain("\"id\":" + id);
+        // 打开、改、触发、再删：四条入口全部 404
+        assertThat(rest.getForEntity("/api/workflows/" + id, String.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(postJson("/api/workflows/" + id + "/executions", "{}").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        HttpHeaders jsonHeaders = new HttpHeaders();
+        jsonHeaders.setContentType(MediaType.APPLICATION_JSON);
+        assertThat(rest.exchange("/api/workflows/" + id, HttpMethod.PUT,
+                new HttpEntity<>(TWO_ECHO_DSL, jsonHeaders), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(rest.exchange("/api/workflows/" + id, HttpMethod.DELETE,
+                new HttpEntity<>(new HttpHeaders()), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND); // 重复删除不报"成功"：调用方要能分清"我删掉了"和"本来就没有"
+
+        Long kept = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow WHERE id = ? AND deleted = TRUE AND deleted_time IS NOT NULL",
+                Long.class, id);
+        assertThat(kept).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM workflow WHERE id = ? AND dsl IS NOT NULL", Long.class, id))
+                .isEqualTo(1L);
     }
 
     /** 极简取值：从 {"data":{"k":123}} 结构中提取数值字段（避免为测试引 JSON 库）。 */

@@ -105,6 +105,20 @@ public class WorkflowController {
         return ApiResponse.ok(Map.of("workflowId", id));
     }
 
+    /**
+     * 删除 = 逻辑删除（画布上消失，库里行、DSL、执行记录、成品目录都留着）。
+     * 归属校验与读改同一条路径：非属主且非 admin ⇒ 404，不区分"不存在"与"无权"。
+     * 删除动作本身顺带关掉调度（见 {@link com.agentflow.server.persistence.WorkflowCatalog#softDelete}），
+     * 所以不需要调用方再补一次 DELETE /schedule——漏那一步就是"删掉的流水线每天定时扣钱"。
+     */
+    @EndpointSensitivity(Sensitivity.USER)
+    @DeleteMapping("/workflows/{id}")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable long id) {
+        requireVisible(id);
+        catalog.softDelete(id);
+        return ApiResponse.ok(Map.of("workflowId", id, "deleted", true));
+    }
+
     @EndpointSensitivity(Sensitivity.USER)
     @GetMapping("/workflows/{id}")
     public ApiResponse<WorkflowDefinition> get(@PathVariable long id) {

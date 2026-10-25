@@ -85,7 +85,9 @@ public class ScheduleService {
     public int fireDue() {
         List<DueRow> due = jdbc.query(
                 "SELECT id, owner_id, schedule_cron, next_fire_at FROM workflow "
-                        + "WHERE schedule_enabled = TRUE AND next_fire_at IS NOT NULL "
+                        // deleted 再判一次是纵深防御：softDelete 已经关了 schedule_enabled，
+                        // 但"逻辑删除的流水线还在定时烧钱"这种账不能只靠一处写入的正确性兜着。
+                        + "WHERE deleted = FALSE AND schedule_enabled = TRUE AND next_fire_at IS NOT NULL "
                         + "AND next_fire_at <= CURRENT_TIMESTAMP ORDER BY next_fire_at LIMIT " + MAX_PER_TICK,
                 (rs, i) -> new DueRow(rs.getLong("id"), rs.getLong("owner_id"), rs.getString("schedule_cron"),
                         rs.getTimestamp("next_fire_at")));

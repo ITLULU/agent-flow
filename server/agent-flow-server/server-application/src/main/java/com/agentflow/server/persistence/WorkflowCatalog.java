@@ -33,7 +33,7 @@ public class WorkflowCatalog {
 
     /** 鉴权用的轻量归属查询：不存在返回 empty 而非抛错——凭证解析不能因为一个 id 把执行链路炸成 500。 */
     public OptionalLong ownerOf(long id) {
-        return jdbc.query("SELECT owner_id FROM workflow WHERE id = ?",
+        return jdbc.query("SELECT owner_id FROM workflow WHERE id = ? AND deleted = FALSE",
                 (rs, i) -> rs.getLong(1), id).stream().mapToLong(Long::longValue).findAny();
     }
 
@@ -61,8 +61,12 @@ public class WorkflowCatalog {
         return keyHolder.getKey().longValue();
     }
 
+    /**
+     * 读定义。逻辑删除的工作流在这里就是"不存在"（404）：
+     * 打开画布、改 DSL、触发执行、看执行详情都走这条路，一处过滤即可全线隐身，不必每个调用点各判一次。
+     */
     public StoredWorkflow findById(long id) {
-        return jdbc.query("SELECT id, name, dsl, owner_id FROM workflow WHERE id = ?",
+        return jdbc.query("SELECT id, name, dsl, owner_id FROM workflow WHERE id = ? AND deleted = FALSE",
                 (rs, rowNum) -> new StoredWorkflow(rs.getLong("id"), rs.getString("name"),
                         rs.getString("dsl"), rs.getLong("owner_id")),
                 id).stream().findFirst()
@@ -76,6 +80,8 @@ public class WorkflowCatalog {
                         + "CAST(update_time AS VARCHAR) AS update_time, creator, updater, dsl FROM workflow");
         List<Object> args = new ArrayList<>();
         List<String> where = new ArrayList<>();
+        // 逻辑删除的行永不进列表（不是"前端自己过滤"：admin 视角同样走这条 SQL）
+        where.add("deleted = FALSE");
         if (ownerId != null) {
             where.add("owner_id = ?");
             args.add(ownerId);
@@ -84,9 +90,7 @@ public class WorkflowCatalog {
             where.add("id < ?");
             args.add(beforeId);
         }
-        if (!where.isEmpty()) {
-            sql.append(" WHERE ").append(String.join(" AND ", where));
-        }
+        sql.append(" WHERE ").append(String.join(" AND ", where));
         sql.append(" ORDER BY id DESC LIMIT ?");
         args.add(limit);
         return jdbc.query(sql.toString(), (rs, rowNum) -> new WorkflowSummary(
@@ -112,8 +116,23 @@ public class WorkflowCatalog {
             throw new ApiException(ErrorCode.BAD_REQUEST, "DSL 序列化失败: " + e.getClass().getSimpleName());
         }
         int rows = jdbc.update("UPDATE workflow SET name = ?, dsl = ?, version = version + 1, "
-                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ?",
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ? AND deleted = FALSE",
                 def.name() == null ? "unnamed" : def.name(), dsl, AuditActor.current(), id);
+        if (rows == 0) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "workflow " + id);
+        }
+    }
+
+    /**
+     * 逻辑删除：只翻 deleted 标记并记删除时刻，行、DSL、执行记录、成品目录全留。
+     * 已是删除态的 id 再删一次报 404（`WHERE deleted = FALSE` 自然落 0 行）——
+     * 不返回"成功"是为了让调用方能区分"我删掉了"和"这里本来就没有"。
+     */
+    public void softDelete(long id) {
+        int rows = jdbc.update("UPDATE workflow SET deleted = TRUE, deleted_time = CURRENT_TIMESTAMP, "
+                        + "schedule_enabled = FALSE, next_fire_at = NULL, "
+                        + "update_time = CURRENT_TIMESTAMP, updater = ? WHERE id = ? AND deleted = FALSE",
+                AuditActor.current(), id);
         if (rows == 0) {
             throw new ApiException(ErrorCode.NOT_FOUND, "workflow " + id);
         }

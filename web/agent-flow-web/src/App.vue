@@ -11,6 +11,7 @@ const listLoading = ref(false)
 const listError = ref('')
 const active = ref(null)
 const opening = ref(false)
+const deleting = ref(null)
 
 function readSession() {
   if (!getToken()) {
@@ -82,6 +83,26 @@ function newWorkflow() {
 function closeCanvas() {
   active.value = null
   loadWorkflows()
+}
+
+/** 删除=逻辑删除：列表不再显示，库里行/DSL/执行记录/成品都还在（后端 DELETE /api/workflows/{id}）。 */
+async function removeWorkflow(w) {
+  if (!window.confirm(`删除工作流《${w.name}》？\n\n列表里不再显示，并会同时停掉它的定时调度。\n历史执行记录与已归档成品保留。`)) {
+    return
+  }
+  deleting.value = w.id
+  listError.value = ''
+  try {
+    await api(`/api/workflows/${w.id}`, { method: 'DELETE' })
+    workflows.value = workflows.value.filter((x) => x.id !== w.id)
+    if (active.value?.id === w.id) {
+      active.value = null
+    }
+  } catch (e) {
+    listError.value = e.message || String(e)
+  } finally {
+    deleting.value = null
+  }
 }
 
 function onSaved() {
@@ -159,6 +180,9 @@ onBeforeUnmount(() => {
             <div class="muted mono">最近修改人 {{ w.updater || w.creator || 'system' }}</div>
             <div class="workflow-card-actions">
               <button class="ghost-btn" @click.stop="openWorkflow(w)">打开画布</button>
+              <button class="danger-btn" :disabled="deleting === w.id" @click.stop="removeWorkflow(w)">
+                {{ deleting === w.id ? '删除中…' : '删除' }}
+              </button>
             </div>
           </li>
         </ul>

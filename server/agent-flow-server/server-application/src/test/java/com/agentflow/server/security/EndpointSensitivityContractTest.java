@@ -21,8 +21,8 @@ class EndpointSensitivityContractTest {
 
     @Test
     void everyControllerRouteIsClassified() {
-        // 1 ping + 2 auth + 8 workflow + 3 credential + 8 artifact + 3 image-studio
-        assertThat(catalog.entries()).hasSize(25);
+        // 1 ping + 2 auth + 9 workflow（含逻辑删除）+ 3 credential + 8 artifact + 3 image-studio
+        assertThat(catalog.entries()).hasSize(26);
         assertThat(catalog.entries()).allSatisfy(e -> assertThat(e.level()).isNotNull());
     }
 

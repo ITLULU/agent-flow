@@ -93,4 +93,29 @@ class P3ScheduleTests {
                 "SELECT COUNT(*) FROM workflow WHERE id = ? AND schedule_enabled = TRUE", Long.class, id);
         assertThat(stillArmed).isEqualTo(0L);
     }
+
+    /**
+     * 逻辑删除必须连带摘掉调度——"删掉的流水线每天定时出图扣钱"是这类工具最贵的 bug。
+     * 后半段是反向验证：手工把已删行重新置成 armed（绕过 softDelete 的写法），扫描仍要跳过，
+     * 证明 fireDue 里的 deleted 过滤不是摆设。
+     */
+    @Test
+    void softDeletedWorkflowNeverFiresEvenWhenReArmedByHand() throws Exception {
+        long id = newEchoWorkflow();
+        schedule.setSchedule(id, "0 0 3 * * *", true);
+        jdbc.update("UPDATE workflow SET next_fire_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(60)), id);
+
+        catalog.softDelete(id);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow WHERE id = ? AND schedule_enabled = TRUE", Long.class, id)).isZero();
+        assertThat(schedule.fireDue()).isZero();
+
+        jdbc.update("UPDATE workflow SET schedule_enabled = TRUE, next_fire_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(60)), id);
+        assertThat(schedule.fireDue()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM execution WHERE workflow_id = ?", Long.class, id))
+                .isZero();
+    }
 }
