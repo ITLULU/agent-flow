@@ -16,8 +16,8 @@ spring:
     # 缺 DB_PASSWORD 时 Flyway 会在建 bean 阶段就失败（"server requested SCRAM-based authentication, but no password
     # was provided"，端口还没绑、进程 exit 1），不会静默连到别的库——实测见 README §1.2。
     url: ${DB_URL:jdbc:postgresql://127.0.0.1:15432/agentflow}
-    username: ${DB_USER:agentflow}
-    password: ${DB_PASSWORD:}
+    username: ${PG_DB_USER:agentflow}
+    password: ${PG_DB_PASSWORD:}
     # 不写 driver-class-name：交给 Spring 按 URL 前缀推断（jdbc:postgresql→PG 驱动）。
     # 写死会把"只覆盖 spring.datasource.url 的测试类"一起带走——它们连的是 H2。
     hikari:
