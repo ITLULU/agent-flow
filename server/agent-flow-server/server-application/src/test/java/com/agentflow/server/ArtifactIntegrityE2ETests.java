@@ -229,30 +229,42 @@ class ArtifactIntegrityE2ETests {
         assertThat(get("/api/artifacts/incomplete", token).getBody()).contains("\"items\":[]");
 
         Path dir = library.resolve(String.valueOf(artifactId));
-        byte[] mdBefore = Files.readAllBytes(dir.resolve("article.md"));
+        // 正文文件名现在是 标题-yyyyMMddHHmmss.md，测试按目录实况取，不再钉死 article.md
+        String mdName = markdownIn(dir);
+        byte[] mdBefore = Files.readAllBytes(dir.resolve(mdName));
         byte[] metaBefore = Files.readAllBytes(dir.resolve("meta.json"));
 
-        Files.delete(dir.resolve("article.md"));
+        Files.delete(dir.resolve(mdName));
         Files.delete(dir.resolve("meta.json"));
         // 反向验证：下载接口真的读盘——文件没了就 404，不会拿 DB 里的正文冒充产物
         // （路径用前端实际传的原始形态；URL 编码过的 "/" 会被 RestTemplate 二次编码，让断言变成假绿）
-        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=article.md", token)
+        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=" + mdName, token)
                 .getStatusCode().value()).isEqualTo(404);
 
         ResponseEntity<String> repaired = post("/api/artifacts/" + artifactId + "/repair", "{}", token);
         assertThat(repaired.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(repaired.getBody()).contains("\"state\":\"complete\"")
-                .contains("article.md").contains("meta.json");
+                .contains(mdName).contains("meta.json");
+        assertThat(markdownIn(dir)).isEqualTo(mdName); // 补偿必须按原名重建，不能又造一份新时刻的
 
         // 补偿交付的必须是同一份稿子，不是"重新生成一份像的"
-        assertThat(Files.readAllBytes(dir.resolve("article.md"))).isEqualTo(mdBefore);
+        assertThat(Files.readAllBytes(dir.resolve(mdName))).isEqualTo(mdBefore);
         assertThat(Files.readAllBytes(dir.resolve("meta.json"))).isEqualTo(metaBefore);
         assertThat(new String(getBytes("/api/artifacts/" + artifactId
-                + "/file?path=article.md", token).getBody(), StandardCharsets.UTF_8))
+                + "/file?path=" + mdName, token).getBody(), StandardCharsets.UTF_8))
                 .contains("秋天，把书一本本读完");
 
         // 图片产物没被误伤：补偿只重建文本，asset 仍在原位
         assertThat(Files.readAllBytes(dir.resolve("assets/cover-1-3x4.png"))).isEqualTo(PNG);
+    }
+
+    /** 成品目录里的那份 markdown（文件名带时刻，测试只认目录实况）。 */
+    private static String markdownIn(Path dir) throws IOException {
+        try (java.util.stream.Stream<Path> s = Files.list(dir)) {
+            return s.filter(p -> p.getFileName().toString().endsWith(".md"))
+                    .map(p -> p.getFileName().toString()).sorted().findFirst()
+                    .orElseThrow(() -> new AssertionError("目录里没有 markdown 产物: " + dir));
+        }
     }
 
     /**

@@ -29,7 +29,7 @@ import org.springframework.stereotype.Repository;
  *
  * 目录布局（library 根目录由 agentflow.content.library-dir 决定）：
  *   {root}/.staging/{executionId}/xxx.png     生成期暂存（image.cover 落图）
- *   {root}/{artifactId}/article.md|note.txt|meta.json|assets/*  发布期成品
+ *   {root}/{artifactId}/{标题}-{yyyyMMddHHmmss}.md|note.txt|meta.json|assets/*  发布期成品
  *
  * 多存储写入顺序按 skill §7 固定为"先落盘、后落库"？恰恰相反：这里先 insert 拿到 id 才能定目录名，
  * 所以顺序是 DB insert → 目录落盘 → 暂存搬迁。中途失败的残留只是 staging 里的孤儿文件，
@@ -179,9 +179,14 @@ public class JdbcContentStore implements ContentStore {
         Map<String, Object> meta = parseMeta(row.get("meta_json"));
         ensureDir(artifactPath(artifactId));
         List<String> restored = new ArrayList<>();
-        writeText(artifactId, "article.md", ArticleMarkdown.render(str(row.get("kind")), str(row.get("title")),
+        // 按归档时记下的文件名重建；存量成品 meta 里没这个键，仍是旧 article.md，绝不能改名造出第二份
+        String markdownFile = str(meta.get("markdownFileName"));
+        if (markdownFile.isBlank()) {
+            markdownFile = ArticleMarkdown.LEGACY_MARKDOWN_FILE;
+        }
+        writeText(artifactId, markdownFile, ArticleMarkdown.render(str(row.get("kind")), str(row.get("title")),
                 str(meta.get("digest")), str(row.get("body")), strList(meta.get("hashtags"))));
-        restored.add("article.md");
+        restored.add(markdownFile);
         writeText(artifactId, "meta.json", prettyJson(meta));
         restored.add("meta.json");
 

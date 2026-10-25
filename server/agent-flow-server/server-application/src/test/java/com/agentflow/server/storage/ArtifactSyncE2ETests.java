@@ -244,12 +244,23 @@ class ArtifactSyncE2ETests {
         return Long.parseLong(extract(list, "id"));
     }
 
+    /** 成品目录里的 markdown 名（文件名带归档时刻，测试只认目录实况）。 */
+    private String markdownOf(long artifactId) throws IOException {
+        Path dir = library.resolve(String.valueOf(artifactId));
+        try (java.util.stream.Stream<Path> s = Files.list(dir)) {
+            return s.filter(x -> x.getFileName().toString().endsWith(".md"))
+                    .map(x -> x.getFileName().toString()).sorted().findFirst()
+                    .orElseThrow(() -> new AssertionError("目录里没有 markdown 产物: " + dir));
+        }
+    }
+
     @Test
     void syncUploadsEveryFileAndRemoteServesAfterLocalVolumeLost() throws Exception {
         String token = login("syncAuthor");
         long artifactId = runPipeline(token);
         Path dir = library.resolve(String.valueOf(artifactId));
-        byte[] mdBefore = Files.readAllBytes(dir.resolve("article.md"));
+        String mdName = markdownOf(artifactId); // 正文文件名现在是 标题-yyyyMMddHHmmss.md
+        byte[] mdBefore = Files.readAllBytes(dir.resolve(mdName));
         byte[] pngBefore = Files.readAllBytes(dir.resolve("assets/cover-1-3x4.png"));
 
         // 同步前：待同步清单要真的看得见这条（enabled=true 而不是"接口没实现"）
@@ -262,7 +273,7 @@ class ArtifactSyncE2ETests {
 
         // 远端落的是三个文件（含图片），不是"只传了正文"
         assertThat(s3.objects.keySet()).containsExactlyInAnyOrder(
-                key(artifactId, "article.md"), key(artifactId, "meta.json"), key(artifactId, "assets/cover-1-3x4.png"));
+                key(artifactId, mdName), key(artifactId, "meta.json"), key(artifactId, "assets/cover-1-3x4.png"));
         assertThat(s3.objects.get(key(artifactId, "assets/cover-1-3x4.png"))).isEqualTo(pngBefore);
         assertThat(s3.bucketCreated()).isTrue(); // 启动时的建桶探针真跑过（log 每条用例会清空，所以看持久标记）
 
@@ -274,7 +285,7 @@ class ArtifactSyncE2ETests {
 
         // 读回落点：本地没了，字节必须从远端出来且与原件一致（文本与图片都验）
         // 路径按前端实际用法原样传（query 里的 "/" 不需要转义；%2F 会被 RestTemplate 二次编码成假 404）
-        byte[] served = getBytes("/api/artifacts/" + artifactId + "/file?path=article.md", token).getBody();
+        byte[] served = getBytes("/api/artifacts/" + artifactId + "/file?path=" + mdName, token).getBody();
         assertThat(served).isEqualTo(mdBefore);
         byte[] servedPng = getBytes("/api/artifacts/" + artifactId
                 + "/file?path=assets/cover-1-3x4.png", token).getBody();
@@ -330,14 +341,15 @@ class ArtifactSyncE2ETests {
         long artifactId = runPipeline(token);
         post("/api/artifacts/" + artifactId + "/sync", "{}", token);
 
-        String objectKey = key(artifactId, "article.md");
+        String mdName = markdownOf(artifactId);
+        String objectKey = key(artifactId, mdName);
         byte[] tampered = s3.objects.get(objectKey).clone();
         byte[] bad = new String(new String(tampered, StandardCharsets.UTF_8).replace("秋天", "冬天"))
                 .getBytes(StandardCharsets.UTF_8);
         s3.objects.put(objectKey, bad);
 
-        Files.delete(library.resolve(String.valueOf(artifactId)).resolve("article.md"));
-        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=article.md", token)
+        Files.delete(library.resolve(String.valueOf(artifactId)).resolve(mdName));
+        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=" + mdName, token)
                 .getStatusCode().value()).isEqualTo(404);
 
         String detail = get("/api/artifacts/" + artifactId, token).getBody();
@@ -363,7 +375,7 @@ class ArtifactSyncE2ETests {
 
         String detail = get("/api/artifacts/" + artifactId, token).getBody();
         assertThat(detail).contains("\"sync_state\":\"synced\"");
-        assertThat(s3.objects).containsKeys(key(artifactId, "article.md"), key(artifactId, "meta.json"),
+        assertThat(s3.objects).containsKeys(key(artifactId, markdownOf(artifactId)), key(artifactId, "meta.json"),
                 key(artifactId, "assets/cover-1-3x4.png"));
         assertThat(get("/api/artifacts/sync/pending", token).getBody()).contains("\"items\":[]");
     }
@@ -398,7 +410,7 @@ class ArtifactSyncE2ETests {
         String other = login("syncVoyeur");
         assertThat(post("/api/artifacts/" + artifactId + "/sync", "{}", other).getBody()).contains("A0404");
         assertThat(get("/api/artifacts/sync/pending?limit=50", other).getBody()).contains("\"items\":[]");
-        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=article.md", other)
+        assertThat(getBytes("/api/artifacts/" + artifactId + "/file?path=" + markdownOf(artifactId), other)
                 .getStatusCode().value()).isEqualTo(404);
     }
 }

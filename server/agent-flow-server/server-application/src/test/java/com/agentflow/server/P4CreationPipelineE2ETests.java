@@ -62,6 +62,16 @@ class P4CreationPipelineE2ETests {
     @TempDir
     static Path library;
 
+    /** 成品目录里的 markdown 名（带归档时刻，测试只认目录实况）。 */
+    static String markdownOf(long artifactId) throws IOException {
+        Path dir = library.resolve(String.valueOf(artifactId));
+        try (java.util.stream.Stream<Path> s = java.nio.file.Files.list(dir)) {
+            return s.filter(p -> p.getFileName().toString().endsWith(".md"))
+                    .map(p -> p.getFileName().toString()).sorted().findFirst()
+                    .orElseThrow(() -> new AssertionError("目录里没有 markdown 产物: " + dir));
+        }
+    }
+
     @DynamicPropertySource
     static void stubEndpoints(DynamicPropertyRegistry registry) throws Exception {
         upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -265,9 +275,12 @@ class P4CreationPipelineE2ETests {
         assertThat(get("/api/artifacts/" + noteId, token).getBody()).contains("秋日读书清单").contains("读书分享");
 
         String files = get("/api/artifacts/" + noteId + "/files", token).getBody();
-        assertThat(files).contains("article.md").contains("meta.json").contains("assets/cover-1-3x4.png");
+        String mdName = markdownOf(noteId); // {标题}-{yyyyMMddHHmmss}.md：重跑不覆盖上一版
+        assertThat(mdName).matches("秋天把书一本本读完-\\d{14}\\.md"); // 标点从文件名里去掉，时刻完整保留
+        assertThat(files).contains(mdName).contains("meta.json").contains("assets/cover-1-3x4.png")
+                .doesNotContain("article.md");
 
-        ResponseEntity<byte[]> md = getBytes("/api/artifacts/" + noteId + "/file?path=article.md", token);
+        ResponseEntity<byte[]> md = getBytes("/api/artifacts/" + noteId + "/file?path=" + mdName, token);
         assertThat(md.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(new String(md.getBody(), StandardCharsets.UTF_8))
                 .contains("# " + TITLE)
@@ -328,7 +341,10 @@ class P4CreationPipelineE2ETests {
             assertThat(UPSTREAM_LOG).contains("wx-material");
             assertThat(UPSTREAM_LOG).anySatisfy(e -> assertThat(e).startsWith("wx-draft:")
                     .contains(TITLE)
-                    .contains("<p>一、为什么秋天适合读书</p>")
+                    // 排版器交付的是内联样式正文（旧行为是一串裸 <p>，微信里没有任何层次）
+                    .contains("<section style=").contains("一、为什么秋天适合读书")
+                    .contains("linear-gradient")
+                    .doesNotContain("class=")
                     .contains("thumb-e2e"));
         }
 

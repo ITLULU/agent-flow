@@ -38,17 +38,78 @@ class LocalArchiveNodeExecutorTest {
         assertThat(out.data()).containsEntry("artifactId", 1L).containsEntry("kind", "article")
                 .containsEntry("title", "深度工作").containsEntry("dir", "/fake/library/1")
                 .containsEntry("fileCount", 3);
-        assertThat(store.files.get(1L)).containsOnlyKeys("article.md", "meta.json");
+        String markdownFile = String.valueOf(out.data().get("markdownFileName"));
+        assertThat(markdownFile).matches("深度工作-\\d{14}\\.md"); // 标题 + yyyyMMddHHmmss
+        assertThat(store.files.get(1L)).containsOnlyKeys(markdownFile, "meta.json");
         assertThat(store.log).anyMatch(l -> l.equals("insert:77:article"))
-                .anyMatch(l -> l.startsWith("write:1:article.md:"))
+                .anyMatch(l -> l.startsWith("write:1:" + markdownFile + ":"))
                 .anyMatch(l -> l.startsWith("write:1:meta.json:"))
                 .anyMatch(l -> l.equals("attach:77:1"));
         assertThat(store.attached.get(1L)).containsExactly("1/assets/cover-1-3x4.png");
 
-        String md = store.files.get(1L).get("article.md");
+        String md = store.files.get(1L).get(markdownFile);
         assertThat(md).startsWith("---\n").contains("title: \"深度工作\"").contains("kind: article")
                 .contains("digest: \"摘要文本\"").contains("hashtags: [\"#效率\", \"#写作\"]")
                 .contains("# 深度工作").contains("> 摘要文本").contains("正文一").contains("#效率 #写作");
+    }
+
+    @Test
+    void metaRecordsTheSameFileNameSoRepairCannotInventANewOne() {
+        FakeContentStore store = new FakeContentStore();
+        NodeOutput out = new LocalArchiveNodeExecutor(store)
+                .execute(new NodeInput(Map.of(), Map.of("copy", copyWechat())), CTX);
+
+        String metaJson = String.valueOf(store.artifacts.get(1L).get("meta_json"));
+        assertThat(metaJson).contains("markdownFileName").contains(String.valueOf(out.data().get("markdownFileName")));
+        assertThat(store.files.get(1L).get("meta.json")).contains("\"markdownFileName\"")
+                .contains(String.valueOf(out.data().get("archivedAt")));
+    }
+
+    @Test
+    void secondRunWithSameTitleGetsItsOwnFileAndOwnDirectory() {
+        // 用户口径的"不要覆盖上一版"：文件名带时刻，且每次跑本就落在独立 artifact 目录
+        FakeContentStore store = new FakeContentStore();
+        LocalArchiveNodeExecutor executor = new LocalArchiveNodeExecutor(store);
+        NodeOutput first = executor.execute(new NodeInput(Map.of(), Map.of("copy", copyWechat())), CTX);
+        NodeOutput second = executor.execute(new NodeInput(Map.of(), Map.of("copy", copyWechat())), CTX);
+
+        assertThat(second.data()).containsEntry("artifactId", 2L);
+        assertThat(store.files.keySet()).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(store.files.get(1L)).containsOnlyKeys(String.valueOf(first.data().get("markdownFileName")), "meta.json");
+        assertThat(store.files.get(2L)).containsOnlyKeys(String.valueOf(second.data().get("markdownFileName")), "meta.json");
+    }
+
+    @Test
+    void slugParamWinsOverTitleForTheFileName() {
+        FakeContentStore store = new FakeContentStore();
+        NodeOutput out = new LocalArchiveNodeExecutor(store).execute(
+                new NodeInput(Map.of("slug", "秋日书单"), Map.of("copy", copyWechat())), CTX);
+
+        assertThat(String.valueOf(out.data().get("markdownFileName"))).matches("秋日书单-\\d{14}\\.md");
+        assertThat(store.files.get(1L).keySet()).doesNotContain("article.md");
+    }
+
+    @Test
+    void awkwardTitlesStillProduceOneSafeFileName() {
+        FakeContentStore store = new FakeContentStore();
+        Map<String, Object> copy = Map.of("mode", "wechat", "title", "../etc 秋日/读书 <计划> 📚", "body", "正文");
+        NodeOutput out = new LocalArchiveNodeExecutor(store)
+                .execute(new NodeInput(Map.of(), Map.of("copy", copy)), CTX);
+
+        String name = String.valueOf(out.data().get("markdownFileName"));
+        assertThat(name).doesNotContain("/", "..", " ", "📚", "<").endsWith(".md");
+        assertThat(name).startsWith("etc-秋日-读书-计划-");
+    }
+
+    @Test
+    void veryLongTitleIsTrimmedButItsTimestampSurvives() {
+        FakeContentStore store = new FakeContentStore();
+        String longTitle = "长".repeat(120);
+        NodeOutput out = new LocalArchiveNodeExecutor(store).execute(
+                new NodeInput(Map.of("title", longTitle, "body", "正文"), Map.of()), CTX);
+
+        String name = String.valueOf(out.data().get("markdownFileName"));
+        assertThat(name).matches("长{60}-\\d{14}\\.md"); // 截的是标题，不是时刻
     }
 
     @Test

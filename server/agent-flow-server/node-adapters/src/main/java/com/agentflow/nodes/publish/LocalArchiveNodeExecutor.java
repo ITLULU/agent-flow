@@ -10,7 +10,7 @@ import com.agentflow.engine.spi.RetryPolicy;
 import com.agentflow.nodes.spi.ContentStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,9 +20,12 @@ import java.util.Map;
  * publish.local — 本地内容库归档节点（自动化发布的第一站：先落库落盘，再谈外发）。
  *
  * 上游取数：找带 body 的上游输出（copy.write）作正文，找带 images 的输出（image.cover）作图。
- * params: kind(article|note，缺省时按 copy.write 的 mode 推) / slug(可选，缺省用标题规范化)
+ * params: kind(article|note，缺省时按 copy.write 的 mode 推) / slug(可选，正文文件名前缀，缺省用标题安全化)
  *         title/body/digest 可显式覆盖上游
- * 输出: artifactId / dir / files[] / markdownPath
+ * 输出: artifactId / dir / files[] / markdownFileName / archivedAt(yyyyMMddHHmmss)
+ *
+ * 正文文件名固定为 {标题}-{yyyyMMddHHmmss}.md：同一篇重跑落在不同 artifact 目录，但下载后本地看到的
+ * 是两份不同名文件，不会再出现"后一次跑冲掉前一次稿子"。
  *
  * 四件套口径：
  * - 超时：30s（本地盘 + 一条 insert，超过就是环境异常）。
@@ -84,12 +87,18 @@ public class LocalArchiveNodeExecutor implements NodeExecutor {
         meta.put("traceId", ctx.traceId());
         meta.put("workflowId", ctx.workflowId());
         meta.put("sourceUrl", firstNonBlank(str(copy.get("url")), input.paramAsString("sourceUrl", null)));
+        // 文件名进 meta 并落库：repair 必须按同名重建，否则补偿一次就多一份漂移的成品
+        String archivedAt = ArticleMarkdown.stamp(LocalDateTime.now());
+        String markdownFile = ArticleMarkdown.markdownFileName(
+                firstNonBlank(input.paramAsString("slug", null), title), archivedAt);
+        meta.put("archivedAt", archivedAt);
+        meta.put("markdownFileName", markdownFile);
 
         long artifactId = contentStore.insert(ctx.executionId(), kind, title, body, toJson(meta));
 
         List<String> files = new ArrayList<>();
         try {
-            files.add(contentStore.writeText(artifactId, "article.md",
+            files.add(contentStore.writeText(artifactId, markdownFile,
                     ArticleMarkdown.render(kind, title, str(copy.get("digest")), body, list(copy.get("hashtags")))));
             files.add(contentStore.writeText(artifactId, "meta.json", prettyJson(meta)));
             files.addAll(contentStore.attachStaged(ctx.executionId(), artifactId));
@@ -108,7 +117,8 @@ public class LocalArchiveNodeExecutor implements NodeExecutor {
         data.put("dir", contentStore.artifactDir(artifactId));
         data.put("files", files);
         data.put("fileCount", files.size());
-        data.put("archivedAt", LocalDate.now().toString());
+        data.put("markdownFileName", markdownFile);
+        data.put("archivedAt", archivedAt);
         return NodeOutput.ok(data);
     }
 
