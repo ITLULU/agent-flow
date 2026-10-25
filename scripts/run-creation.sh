@@ -176,7 +176,9 @@ jq -r '.data.nodes[]? | "  \(.nodeId) \(.nodeType) → \(.status)（\(.attempts)
 echo "== 终态: $STATUS =="
 [[ "$STATUS" == SUCCESS || "$STATUS" == SUCCESS_WITH_DEGRADED ]] || { echo "$DET" | jq .; exit 1; }
 
-ART_ID=$(jq -r "[.data[] | select(.kind==\"$KIND\")][0].id // empty" <<<"$(api GET "/api/artifacts?kind=$KIND&limit=1")")
+# /api/artifacts 是分页对象 {items,nextCursor}（P7-3#13），不是裸数组；写成 .data[] 会让 jq 报
+# "Cannot index array with string"，取成品这一步直接崩
+ART_ID=$(jq -r "[.data.items[] | select(.kind==\"$KIND\")][0].id // empty" <<<"$(api GET "/api/artifacts?kind=$KIND&limit=1")")
 [[ -n "$ART_ID" ]] || { echo "成品库没有 kind=$KIND 记录" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
 while IFS= read -r F; do
