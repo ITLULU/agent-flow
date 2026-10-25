@@ -175,8 +175,17 @@ public class WorkflowEngine {
 
         if (lastError == null) {
             upstream.put(nodeId, output.data());
-            record(executionId, results, new NodeRunResult(nodeId, nodeDef.type(), NodeStatus.SUCCESS,
-                    usedAttempts, durationMs, output.data(), null));
+            // 节点可以在不抛异常的情况下自报降级（典型：多源聚合只拿到部分源）。
+            // 成功路径也必须认这个标志，否则"禁止静默降级"的合同在这里直接失效——
+            // 改之前引擎只看 lastError，degraded=true 的返回值会被记成 SUCCESS。
+            boolean selfDegraded = output.degraded();
+            if (selfDegraded) {
+                anyDegraded.set(true);
+                log.warn("[traceId={}] 节点 {} 返回降级输出（未抛异常）: {}", traceId, nodeId, output.degradeReason());
+            }
+            record(executionId, results, new NodeRunResult(nodeId, nodeDef.type(),
+                    selfDegraded ? NodeStatus.DEGRADED : NodeStatus.SUCCESS,
+                    usedAttempts, durationMs, output.data(), selfDegraded ? output.degradeReason() : null));
         } else {
             Optional<NodeOutput> degraded = tryDegrade(executor, input, lastError);
             if (degraded.isPresent()) {

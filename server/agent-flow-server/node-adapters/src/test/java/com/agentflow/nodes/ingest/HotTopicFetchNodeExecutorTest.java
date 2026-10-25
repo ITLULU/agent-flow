@@ -49,6 +49,7 @@ class HotTopicFetchNodeExecutorTest {
             assertThat(out.data()).containsEntry("count", 2);
             assertThat(out.data()).containsEntry("okSources", List.of("stub"));
             assertThat(out.data()).containsEntry("failedSources", List.of());
+            assertThat(out.degraded()).isFalse(); // 全源存活不得自报降级，否则 DEGRADED 会失去含义
         }
     }
 
@@ -90,6 +91,9 @@ class HotTopicFetchNodeExecutorTest {
             assertThat((List<?>) out.data().get("failedSources")).hasSize(1)
                     .allSatisfy(f -> assertThat(String.valueOf(f)).contains("C0003"));
             assertThat(out.data()).containsEntry("count", 1);
+            // 部分源失败必须自报降级：四源只剩一源时，时间线上不能和"全都活着"长得一样
+            assertThat(out.degraded()).isTrue();
+            assertThat(out.degradeReason()).contains("部分热榜源不可用").contains("baidu");
         }
     }
 

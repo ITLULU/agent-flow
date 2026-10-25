@@ -162,6 +162,24 @@ class WorkflowEngineSemanticsTest {
         }
     }
 
+    /** 不抛异常但自报 degraded：验证成功路径也认这个标志（改之前引擎只看 lastError）。 */
+    static class PartialResultExecutor implements NodeExecutor {
+        @Override
+        public String type() {
+            return "t.partial";
+        }
+
+        @Override
+        public NodeOutput execute(NodeInput input, ExecutionContext ctx) {
+            return NodeOutput.degraded(Map.of("count", 1), "四个来源只活了一个");
+        }
+
+        @Override
+        public RetryPolicy retryPolicy() {
+            return RetryPolicy.noRetry();
+        }
+    }
+
     /** sleep 超过自身 timeout：验证引擎层 orTimeout 生效。 */
     static class SlowExecutor implements NodeExecutor {
         @Override
@@ -218,6 +236,19 @@ class WorkflowEngineSemanticsTest {
         // 降级输出照样进入上游上下文，下游确实拿到 n1 的键
         assertThat(loggedNodes.get(1).output()).containsEntry("sawN1", "true");
         assertThat(finishedStatuses).containsExactly("SUCCESS_WITH_DEGRADED");
+    }
+
+    /** 节点没抛异常但自报降级：也必须记 DEGRADED 并把整次执行升到 SUCCESS_WITH_DEGRADED。 */
+    @Test
+    void selfReportedDegradationOnSuccessPathIsRecordedDegraded() {
+        registry.register(new PartialResultExecutor());
+
+        ExecutionResult r = engine.run(99L, 1L,
+                chain(new NodeDef("n1", "t.partial", Map.of())), "trace-partial");
+
+        assertThat(r.nodeResults().get(0).status()).isEqualTo(NodeStatus.DEGRADED);
+        assertThat(r.nodeResults().get(0).reason()).contains("只活了一个");
+        assertThat(r.status()).isEqualTo(ExecutionStatus.SUCCESS_WITH_DEGRADED);
     }
 
     @Test

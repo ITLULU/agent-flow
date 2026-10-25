@@ -28,8 +28,9 @@ import java.util.function.Function;
  * 四件套口径：
  * - 超时：30s 覆盖多源串行；单源用 HttpJson 的 10s 兜底超时（同一口径的下游实现）。
  * - 重试：仅 1 次、800ms 退避——热榜是公开站，激进重试只会被风控，收益为零。
- * - 异常：单源失败不影响其它源（每源独立 try），全部失败才走降级。
- * - 降级：输出空 items 续跑——用户自带话题/文章时，热点只是可选燃料，不该断链；degraded=true 显性。
+ * - 异常：单源失败不影响其它源（每源独立 try）；全部失败才抛异常走 degrade()。
+ * - 降级：输出空 items 续跑——用户自带话题/文章时，热点只是可选燃料，不该断链，degraded=true 显性。
+ *         **部分源失败也自报 degraded**（数据照常返回），否则"四源只剩一源"在时间线上看着和"四源全活"一样。
  *
  * 这些榜单接口都是对方网页自用接口，随时可能改结构：解析全程判空，
  * 结构变化表现为 failedSources 增多而非异常，运维可从执行日志直接定位。
@@ -157,6 +158,12 @@ public class HotTopicFetchNodeExecutor implements NodeExecutor {
         if (merged.isEmpty()) {
             throw new ApiException(ErrorCode.UPSTREAM_PROTOCOL_ERROR,
                     "所有热榜来源均取数失败: " + String.join(" | ", failedSources));
+        }
+        // 部分源失败：数据照常交付，但必须自报降级——四源只剩一源时给用户看"SUCCESS"是误导，
+        // 引擎会把这个标志记成 NodeStatus.DEGRADED 并把整次执行升到 SUCCESS_WITH_DEGRADED。
+        if (!failedSources.isEmpty()) {
+            return NodeOutput.degraded(data, "部分热榜源不可用（已成功 " + okSources.size() + " 个，失败："
+                    + String.join(" | ", failedSources) + "），本次条目仅来自存活源");
         }
         return NodeOutput.ok(data);
     }

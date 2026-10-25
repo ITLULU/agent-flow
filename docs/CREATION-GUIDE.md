@@ -7,7 +7,7 @@
 
 | 输入方式 | 首节点 | 必填参数 | 说明 |
 |---|---|---|---|
-| 抓热点 | `hotspot.fetch` | `sources`（默认 `weibo,baidu,toutiao,zhihu`）、`limit` | 多源合并去重；单源失败只记 `failedSources`，全失败才报错；热榜整体不可用时**降级**为空条目，下游改用用户自带话题继续 |
+| 抓热点 | `hotspot.fetch` | `sources`（默认 `weibo,baidu,toutiao,zhihu`）、`limit` | 多源合并去重；单源失败只记 `failedSources`，全失败才报错。**只要有任何一个源失败，本节点就自报 `degraded=true`**（节点行显示 DEGRADED、整次执行升到 `SUCCESS_WITH_DEGRADED`），四源只剩一源不会看着像"全绿"；热榜整体不可用时**降级**为空条目，下游改用用户自带话题继续 |
 | 给一篇公众号文章/任意链接 | `article.extract` | `url`（可选 `selector`） | 抽取正文 `text` 当素材、标题当主题；正文自动截断入素材区，仅做观点参考、要求原创重写 |
 | 给想法/话题 | 无 | `copy.write.topic` | 不接上游取数，直接以此主题创作 |
 
