@@ -33,13 +33,13 @@
 
 - 判定命令：`lsof -nP -iTCP:<port> -sTCP:LISTEN` 看 `NAME` 是 `127.0.0.1:x` 还是 `[::1]:x`。
 - 口径：**凡是自己起的服务都显式绑 `127.0.0.1`**（`vite.config.js` 已这么写，代理目标同理）；`java`/Spring Boot 绑 `*:8080` 属双栈，v4 能连（`http://127.0.0.1:8080/api/ping` 200）、v6 连不上（`http://[::1]:8080` 直接失败），这是正常现象别去"修"。
-- 同理，`docker ps` 会把映射端口列成 `0.0.0.0:15432` **和** `[::]:15432` 两行，但那只是 docker 的写法：实测 `127.0.0.1:15432` 通、`[::1]:15432` 连不上。**任何"端口明明映射了却连不上"，先换成 `127.0.0.1` 再怀疑应用。**
+- 同理，`docker ps` 会把映射端口列成 `0.0.0.0:15432` **和** `[::]:15432` 两行，但那只是 docker 的写法：实测 `127.0.0.1:15432` 通、`[::1]:15432` 连不上。**任何"端口明明映射了却连不上"，先换成 `127.0.0.1` 再怀疑应用。**（2026-10-25 16:01 起 `agent-flow-db` 的映射已显式写成 `127.0.0.1:15432:5432`，`docker ps` 只剩一行；上面这条记录的是当时用临时 override、未指定 `host_ip` 时 docker 的显示形态。）
 
 ## 本机已自建的运行时依赖（不需要你准备）
 
 | 依赖 | 本机形态 | 端口 | 用途 |
 |---|---|---|---|
-| PostgreSQL 16 + pgvector | `pgvector/pgvector:pg16` 容器（compose 内 `agent-flow-db`，另有独立 `postgres`） | 5432 | prod profile 主数据源，容器形态已实机复验 |
+| PostgreSQL 16 + pgvector | `pgvector/pgvector:pg16` 容器（compose 内 `agent-flow-db`，另有独立 `postgres`） | 容器网内 5432；宿主 `127.0.0.1:15432`（compose 已发布，只绑回环） | prod / pg profile 主数据源，pg profile 于 2026-10-25 16:02 实机复验 |
 | MinIO | `minio/minio` 容器 | 9000/9001 | 成品对象存储远端副本，**本地已按生产同形态打开并验过**（同一条代码路径，换云只换值） |
 | TEI CPU | `rerank-mac` 容器 | 8088 | rag-kb 精排的 CPU 档 |
 | llama.cpp Metal | 宿主机 `llama-server --reranking -ngl 99`（b11836 + `bge-reranker-v2-m3` Q4_K_M） | 8089 | rag-kb 精排的 **GPU 档**，实测比 TEI CPU 快 16 倍 |
