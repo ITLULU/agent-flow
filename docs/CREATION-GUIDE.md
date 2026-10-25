@@ -56,6 +56,15 @@ DSL 的固定顺序是 `… → publish.local → wechat.draft|xhs.draft`：**�
 - 实测（2026-10-25 17:19，执行 8）：`copy.write/image.cover/publish.local` 三段 SUCCESS、`wechat.draft` 因 `errcode=40125 invalid appsecret` FAILED，成品 #4 的文件清单与 `article.md` 下载均正常。
 - 要重发不必重跑创作：直接对成品 #id 起一条只有 `wechat.draft` 的流水线会缺上游正文，正确做法是修好凭证后整条重跑（创作段可加 `--publish none` 先只出成品）。
 
+### 3.2 不写命令：在画布上跑同一条链路
+
+节点面板按 采集 / 创作 / 发布 / 调试 分组，拖出 `正文抽取 → 文案成稿 → 封面主图 → 成品归档 → 公众号草稿` 并连线，就是 §3 那条命令的等价物。画布上"运行"之后：
+
+- 底部抽屉轮询执行明细，逐节点显示 状态 / 尝试次数 / 耗时，标题带 `#执行id` 与 traceId，终态为 `成功`/`部分成功`/`失败`；
+- "最近成品"条列出最近 5 条成品，点一下即取文件清单并下载 `article.md`（封面走 `assets/cover-*.png`）；
+- 只想先出成品、不发草稿：把最后一个发布节点从画布上摘掉再运行（保存即校验，悬空边会被拒），这与 `--publish none` 同义。
+- 实测（2026-10-25 17:45，`canvas-smoke-localonly` / workflow 15 / 执行 14 / 成品 #8）：四节点链路在浏览器里跑完，节点耗时 844ms + 14.1s + 6.9s + 15ms ≈ 22s，成品文件下载成功，全程未使用 curl。
+
 ## 4. 手工 API 序列（等价拆解）
 
 DSL 骨架（`trigger` 是**对象**不是字符串，写成 `"manual"` 会 A0400 解析失败）：
