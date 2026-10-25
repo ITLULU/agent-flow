@@ -160,8 +160,8 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `AGENTFLOW_MASTER_KEY`（环境变量） | 未设置 | 已在 P3 接入（yml 映射到 `agentflow.security.master-key`）；生产上线前必须注入 base64(32B) 主密钥 |
 | `AGENTFLOW_MASTER_KEY_PREVIOUS`（环境变量） | 未设置 | 轮换期旧主密钥（base64 32B）；容器走 `AGENTFLOW_MASTER_KEY_PREVIOUS_FILE`，空文件按未配置处理。窗口结束必须清空，否则旧密钥的泄露面一直存在 |
 | `agentflow.nodes.llm.api-key` / `image.api-key` | `${AI_API_KEY:${BAILIAN_API_KEY:}}`（空） | env 注入（`AI_API_KEY` 为统一入口，`BAILIAN_API_KEY` 保留兼容；容器走 `AI_API_KEY_FILE`）；空凭证不阻塞启动，`copy.write`/`llm.chat`/`image.cover`/`image.wanxiang` 执行时报不可重试配置错 |
+| `agentflow.nodes.llm.base-url` / `image.base-url` | `https://dashscope.aliyuncs.com`（两者同一 host 默认值） | **只填 host，不要带 path**：spring-ai-alibaba 的 `DashScopeApi` 走原生协议，path 固定在 `/api/v1/services/aigc/text-generation/generation`（生图 `/api/v1/services/aigc/text2image/image-synthesis`，参考图解析 `/api/v1/services/aigc/multimodal-generation/generation`）。填成 `…/compatible-mode` 会拼成 `/compatible-mode/api/v1/…` 直接 404——那是 OpenAI 兼容协议的前缀，这套 SDK 不用它。实际出口地址每次启动都打印（见下） |
 | `agentflow.nodes.llm.default-model` | `qwen-plus` | 节点 params.model 可逐次覆盖（多模型可配置） |
-| `agentflow.nodes.image.base-url` | `https://dashscope.aliyuncs.com` | 仅测试/代理环境改；节点 `ratio`/`size` 决定出图尺寸 |
 | `agentflow.nodes.wechat.app-id` / `app-secret` | `${WX_API_APPID:${WECHAT_APPID:}}` / `${WX_API_SECRET:${WECHAT_SECRET:}}` | env 注入（新名 `WX_API_*` 优先，旧名兼容；容器走 `WECHAT_*_FILE` secret）；云端需将出网 IP 加进公众号 IP 白名单；单用户可用 `wechat.draft.credentialId` 走凭证库 |
 | `agentflow.content.library-dir` | `${AGENTFLOW_LIBRARY_DIR:./data/library}` | 成品库根目录，所有读写被约束在此目录内（`resolveInside` 防穿越）；容器/云主机必须 env 指向持久卷，否则重启丢成品。启动自检做写探针 |
 | `agentflow.content.storage.enabled` | `${AGENTFLOW_STORAGE_ENABLED:false}` | **成品远端副本开关（P7-3#12b）**。关闭时不建客户端、不排扫描、一个字节也不出网；打开时端点/桶/凭证必须齐全，否则启动即失败（fail-fast） |
@@ -182,6 +182,28 @@ scripts/run-creation.sh --mode wechat --url https://mp.weixin.qq.com/s/xxxx
 | `agentflow.resilience.dependencies.<name>.failure-threshold` | llm/image 5，wechat/xhs 3，web 10 | 连续"依赖侧失败"（仅 C0001 连接拒绝 / C0002 超时 / C0003 协议错误）达到阈值即熔断；A04xx 等客户端错误视为对端可达并重置计数 |
 | `agentflow.resilience.dependencies.<name>.open-duration` | 30s（wechat/xhs 60s） | 熔断冷却时长；到期后放行 1 个半开探测，成功闭合、失败重新 open。open 期间节点直接 `C0004`，引擎判不可重试 |
 | `agentflow.engine.max-parallel-nodes` | `${AGENTFLOW_ENGINE_MAX_PARALLEL_NODES:8}` | 同一条执行内"同一层（互不依赖）节点"的并发上限（P7-3#18 并行支路）。调大不会让单节点变快，只会让依赖抖动时更容易打穿舱壁；与 `exec.max-concurrent` 相乘才是进程内节点任务的上界。`<1` 启动即失败 |
+
+### 三个上游地址怎么确认（key 与域名不匹配时先看这里）
+
+启动自检每次都会打印**实际出口地址**（不是配置表里的字符串，是网关装配出来的 URL）：
+
+```
+llm endpoint                 : https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
+image endpoint               : https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis
+vision endpoint              : https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+```
+
+`llm endpoint` 在没配 key 时打印 `(llm 网关未装配…)` 而不是一个假 URL。这三条 host+path 都由单测钉住：`SpringAiLlmGatewayTest.configuredBaseUrlReplacesRequestHostAndIsReported` 把网关指向本地 HTTP 桩，直接断言桩收到的就是 `POST /api/v1/services/aigc/text-generation/generation`（**实测行为**，不是读代码推的）。
+
+排查顺序建议：**先确认 key 与域名是否配对，再怀疑代码**。百炼的两类 key 各自只在一个入口有效——按量 key 认 `dashscope.aliyuncs.com`，包月 Token Plan 的 `sk-sp-…` 只认 `token-plan.cn-beijing.maas.aliyuncs.com`。零成本探针（不产 token）：
+
+```bash
+# OpenAI 兼容协议的模型清单：200=key 有效，401=key 与该域名不匹配
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $AI_API_KEY1" \
+  https://dashscope.aliyuncs.com/compatible-mode/v1/models
+```
+
+⚠️ 一条与容器形态有关的口径：`docker-entrypoint.sh` 的 `*_FILE` 垫片把 compose secret 落回 **`AI_API_KEY`** 这个变量名，所以 `agentflow.nodes.llm.api-key` / `image.api-key` 的占位符链里必须仍然包含 `AI_API_KEY`；只写本地调试用的名字（如 `AI_CHAT_API_KEY`/`AI_API_KEY1`）会让容器起来后 key 为空、节点执行才报配置错。改这几行时把容器那条一起带上。
 
 ### 走云桶需要交接的六项（自测阶段不需要，本地 MinIO 已跑通同一条代码路径）
 

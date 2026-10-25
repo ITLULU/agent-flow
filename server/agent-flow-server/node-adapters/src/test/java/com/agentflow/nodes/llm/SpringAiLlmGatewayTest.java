@@ -112,4 +112,43 @@ class SpringAiLlmGatewayTest {
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UPSTREAM_PROTOCOL_ERROR));
     }
+
+    /** 不填 base-url 时就是原生公网域名 + 原生 path：这条是"配置表说默认值"与"代码实际默认值"的对账。 */
+    @Test
+    void defaultEndpointIsDashScopeNativeUrl() {
+        assertThat(new SpringAiLlmGateway("sk", "qwen-plus").endpoint())
+                .isEqualTo("https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation");
+    }
+
+    /**
+     * base-url 确实换了出口地址（不是只存字段给日志看）：把网关指向本地桩，
+     * 桩回空报文 ⇒ 调用必然失败，但我们要的取证是"这一发打到了哪个 host+path"。
+     * 结尾多写的 / 会被削掉，拼出来的 URL 不能带双斜杠。
+     */
+    @Test
+    void configuredBaseUrlReplacesRequestHostAndIsReported() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> requested =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        try (com.agentflow.nodes.StubHttp stub = new com.agentflow.nodes.StubHttp(ex -> {
+            requested.set(ex.getRequestMethod() + " " + ex.getRequestURI().getPath());
+            com.agentflow.nodes.StubHttp.respond(ex, 200, "{}");
+        })) {
+            SpringAiLlmGateway gateway = new SpringAiLlmGateway("sk-stub", "qwen-plus", stub.baseUrl() + "/");
+            assertThat(gateway.endpoint()).isEqualTo(stub.baseUrl() + SpringAiLlmGateway.CHAT_PATH);
+
+            try {
+                gateway.chat(new LlmGateway.Request(null, null, "ping", null));
+            } catch (RuntimeException expected) {
+                // 桩故意回空报文：这里不看成败，只看出口地址
+            }
+            assertThat(requested.get()).isEqualTo("POST /api/v1/services/aigc/text-generation/generation");
+        }
+    }
+
+    /** 空串/缺省等价：传 "" 不能拼出一个空 host 的请求地址。 */
+    @Test
+    void blankBaseUrlFallsBackToDefault() {
+        assertThat(new SpringAiLlmGateway("sk", "qwen-plus", "").endpoint())
+                .isEqualTo(SpringAiLlmGateway.DEFAULT_BASE_URL + SpringAiLlmGateway.CHAT_PATH);
+    }
 }
