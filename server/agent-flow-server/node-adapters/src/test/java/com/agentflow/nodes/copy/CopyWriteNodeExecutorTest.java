@@ -38,6 +38,25 @@ class CopyWriteNodeExecutorTest {
         }
     }
 
+    /** 按脚本站答并留下每一次请求：蒸馏 + 创作是两次调用，只记 last 看不出顺序。 */
+    private static final class ScriptedGateway implements LlmGateway {
+        private final java.util.Deque<String> answers = new java.util.ArrayDeque<>();
+        private final java.util.List<Request> requests = new java.util.ArrayList<>();
+
+        ScriptedGateway(String... answers) {
+            java.util.Collections.addAll(this.answers, answers);
+        }
+
+        @Override
+        public Reply chat(Request request) {
+            requests.add(request);
+            if (answers.isEmpty()) {
+                throw new IllegalStateException("桩网关被多问了一次（预期只两次调用）");
+            }
+            return new Reply(answers.removeFirst(), "qwen-plus", 100);
+        }
+    }
+
     private static final String STRUCTURED = """
             【标题】别让周报吞噬你的深度工作
             【副标题】三个能立刻上手的节奏设计
@@ -261,5 +280,56 @@ class CopyWriteNodeExecutorTest {
         assertThat(executor.timeout().toSeconds()).isEqualTo(120);
         assertThat(executor.retryPolicy().maxAttempts()).isEqualTo(1);
         assertThat(executor.retryPolicy().firstBackoffMs()).isEqualTo(2000L);
+    }
+
+    /** 一段"像原文"的长素材：够长才会触发蒸馏（阈值 800 字）。 */
+    private static final String LONG_ARTICLE =
+            "让你无痛上班的十个法则，第一条是不要替公司翻译情绪，第二条是不要把周报当成作品。".repeat(30);
+
+    @Test
+    void longMaterialIsDistilledBeforeWriting() {
+        ScriptedGateway gateway = new ScriptedGateway("- 要点一：把情绪劳动命名出来\n【须避开】无痛上班", STRUCTURED);
+        NodeOutput out = run(Map.of("topic", "职场不内耗", "material", LONG_ARTICLE), Map.of(), gateway);
+
+        assertThat(gateway.requests).hasSize(2);
+        assertThat(gateway.requests.get(0).system()).contains("内容研究员");
+        assertThat(gateway.requests.get(0).temperature()).isEqualTo(0.2d); // 蒸馏要收敛，不吃创作的 temperature
+        assertThat(gateway.requests.get(0).prompt()).contains("不要替公司翻译情绪");
+        // 创作这一步只能看到要点清单：看不到原句，物理上就抄不动原句
+        assertThat(gateway.requests.get(1).prompt()).contains("要点一").contains("【须避开】")
+                .doesNotContain("不要替公司翻译情绪");
+        assertThat(out.data()).containsEntry("materialDistilled", true);
+    }
+
+    @Test
+    void distillFalseWritesStraightFromRawMaterial() {
+        ScriptedGateway gateway = new ScriptedGateway(STRUCTURED);
+        NodeOutput out = run(Map.of("topic", "T", "material", LONG_ARTICLE, "distill", false), Map.of(), gateway);
+        assertThat(gateway.requests).hasSize(1);
+        assertThat(gateway.requests.get(0).prompt()).contains("不要替公司翻译情绪");
+        assertThat(out.data()).containsEntry("materialDistilled", false);
+
+        // 画布传过来的是字符串，"false" 必须同样关掉，否则开关只对脚本生效
+        ScriptedGateway canvasStyle = new ScriptedGateway(STRUCTURED);
+        run(Map.of("topic", "T", "material", LONG_ARTICLE, "distill", "false"), Map.of(), canvasStyle);
+        assertThat(canvasStyle.requests).hasSize(1);
+    }
+
+    @Test
+    void shortMaterialSkipsDistillCall() {
+        ScriptedGateway gateway = new ScriptedGateway(STRUCTURED);
+        NodeOutput out = run(Map.of("topic", "T", "material", "只有这么点素材"), Map.of(), gateway);
+        assertThat(gateway.requests).hasSize(1); // 热榜标题串不值得多烧一次调用
+        assertThat(out.data()).containsEntry("materialDistilled", false);
+    }
+
+    @Test
+    void blankDigestFailsInsteadOfQuietlyUsingRawMaterial() {
+        ScriptedGateway gateway = new ScriptedGateway("   ", STRUCTURED);
+        assertThatThrownBy(() -> run(Map.of("topic", "T", "material", LONG_ARTICLE), Map.of(), gateway))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ErrorCode.UPSTREAM_PROTOCOL_ERROR);
+                    assertThat(e.getMessage()).contains("蒸馏");
+                });
     }
 }

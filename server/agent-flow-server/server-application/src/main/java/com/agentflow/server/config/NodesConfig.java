@@ -1,6 +1,7 @@
 package com.agentflow.server.config;
 
 import com.agentflow.nodes.copy.CopyWriteNodeExecutor;
+import com.agentflow.nodes.copy.OriginalityCheckNodeExecutor;
 import com.agentflow.nodes.http.HttpCollectNodeExecutor;
 import com.agentflow.nodes.image.CoverImageNodeExecutor;
 import com.agentflow.nodes.image.WanxiangImageNodeExecutor;
@@ -84,6 +85,12 @@ public class NodesConfig {
     @Bean
     public CopyWriteNodeExecutor copyWriteNodeExecutor(ObjectProvider<LlmGateway> gatewayProvider) {
         return new CopyWriteNodeExecutor(gatewayProvider::getIfAvailable);
+    }
+
+    /** 原创度校验：LLM 没配也照样能跑（退回本地 5-gram 重合度），不能让校验本身变成链路的新单点。 */
+    @Bean
+    public OriginalityCheckNodeExecutor originalityCheckNodeExecutor(ObjectProvider<LlmGateway> gatewayProvider) {
+        return new OriginalityCheckNodeExecutor(gatewayProvider::getIfAvailable);
     }
 
     /** contentStore 缺席（未启用内容库）时只回远端图片 URL，不落盘。 */

@@ -20,10 +20,11 @@ import java.util.function.Supplier;
  *
  * params: mode(wechat|xiaohongshu，默认 wechat) / topic(必填或从上游热点取)
  *         material(可选素材文本；缺省时自动汇总上游 hotspot.fetch / article.extract 输出)
+ *         distill(默认 true：素材 ≥800 字时先花一次调用蒸成要点清单再创作，杜绝整句照抄；false=直接用原素材)
  *         audience(目标读者) / tone(语气，如"克制、专业、有画面感") / length(目标字数，wechat 默认 1500、xhs 默认 600)
  *         model(覆盖默认模型) / temperature(默认 0.8，创作需要发散)
  * 输出: title / subtitle / digest / body / hashtags[] / keyPoints[] / coverLines[] / wordCount /
- *       mode / model / totalTokens / parseFallback
+ *       materialDistilled / mode / model / totalTokens / parseFallback
  *
  * 四件套口径：
  * - 超时：120s（长文一次生成 1500 字，90s 的 llm.chat 口径不够用，这里按输出规模放宽）。
@@ -38,6 +39,8 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
     public static final String MODE_WECHAT = "wechat";
     public static final String MODE_XHS = "xiaohongshu";
     private static final int MAX_MATERIAL_CHARS = 12000;
+    /** 素材超过这个长度就先蒸馏成要点：够短就不可能成段照抄，也就不必多花一次调用。 */
+    private static final int DISTILL_MIN_CHARS = 800;
     /** 兜底取"最长一节"时的最小字数门槛：低于它就不敢认定那是正文，宁可整体交付。 */
     private static final int MIN_BODY_CHARS = 200;
 
@@ -76,6 +79,14 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
         }
         String material = resolveMaterial(input);
         int length = asInt(input.param("length"), MODE_WECHAT.equals(mode) ? 1500 : 600);
+        // 反抄袭前置：素材给得越整，模型越容易贴着原句改写（实测整篇原文喂进去，出来的稿子会复述原文小标题和例句）。
+        // 先蒸成"要点清单"，让写作这一步在物理上无整句可抄；蒸馏失败就抛，不悄悄退回原文素材继续写。
+        boolean materialDistilled = false;
+        if (shouldDistill(input, material)) {
+            String digest = digestMaterial(gateway, input, topic, material);
+            material = trimMaterial(digest);
+            materialDistilled = true;
+        }
 
         String system = PromptTemplates.load(MODE_WECHAT.equals(mode) ? "copy-wechat.txt" : "copy-xiaohongshu.txt");
         String prompt = buildUserPrompt(mode, topic, material, input, length);
@@ -120,6 +131,7 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
         data.put("keyPoints", listField(sections.get("金句"), false));
         data.put("coverLines", listField(sections.get("封面文案"), false));
         data.put("wordCount", countWords(body));
+        data.put("materialDistilled", materialDistilled);
         data.put("parseFallback", parseFallback);
         data.put("model", reply.modelUsed() == null ? "default" : reply.modelUsed());
         if (reply.totalTokens() != null) {
@@ -154,6 +166,30 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
         if (v != null && !v.isBlank()) {
             sb.append(label).append("：").append(v.trim()).append("\n");
         }
+    }
+
+    /** 短素材（热榜标题串）没有可抄的句子，不值得多花一次调用；长素材一律先蒸馏。distill=false 显式关闭。 */
+    private static boolean shouldDistill(NodeInput input, String material) {
+        return asBoolean(input.param("distill"), true) && material.length() >= DISTILL_MIN_CHARS;
+    }
+
+    private static String digestMaterial(LlmGateway gateway, NodeInput input, String topic, String material) {
+        String user = "【写作主题】" + topic + "\n【待蒸馏素材】\n" + material;
+        LlmGateway.Reply reply;
+        try {
+            // 蒸馏要收敛不要发散：0.2 远低于创作默认的 0.8，temperature 参数不该污染这一步
+            reply = gateway.chat(new LlmGateway.Request(input.paramAsString("model", null),
+                    PromptTemplates.load("material-digest.txt"), user, 0.2d));
+        } catch (ApiException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new ApiException(ErrorCode.UPSTREAM_PROTOCOL_ERROR, "素材蒸馏失败: " + e.getMessage());
+        }
+        if (reply == null || reply.content() == null || reply.content().isBlank()) {
+            throw new ApiException(ErrorCode.UPSTREAM_PROTOCOL_ERROR,
+                    "素材蒸馏返回空内容：不拿原文直接创作（原创性无法保证），请重试或显式传 distill=false");
+        }
+        return reply.content().trim();
     }
 
     /** 素材优先级：显式 material > 上游 article.extract 正文 > 上游 hotspot.fetch 条目。 */
@@ -321,6 +357,23 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
                 return Integer.parseInt(s.trim());
             } catch (NumberFormatException ignored) {
                 return def;
+            }
+        }
+        return def;
+    }
+
+    /** DSL 里布尔既可能是 JSON true，也可能是画布传来的 "false" 字符串，两种都要认。 */
+    private static boolean asBoolean(Object v, boolean def) {
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        if (v instanceof String s) {
+            String t = s.trim().toLowerCase();
+            if (t.equals("false") || t.equals("0") || t.equals("off") || t.equals("no")) {
+                return false;
+            }
+            if (t.equals("true") || t.equals("1") || t.equals("on") || t.equals("yes")) {
+                return true;
             }
         }
         return def;

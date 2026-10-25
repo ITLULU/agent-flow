@@ -42,6 +42,7 @@ public class DependencyGuard {
     private static final Map<String, String> TYPE_DEPENDENCY = Map.of(
             "llm.chat", "llm",
             "copy.write", "llm",
+            "copy.originality", "llm",
             "image.cover", "image",
             "image.wanxiang", "image",
             "wechat.draft", "wechat",
