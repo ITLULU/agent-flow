@@ -93,6 +93,35 @@ class P4WorkflowCanvasApiE2ETests {
                 .contains("C0500");
     }
 
+    /**
+     * 画布设置（生成字数）必须能存能取：前端"保存"写的是 DSL 根 settings，
+     * 一旦后端解析/入库把它吃掉，节点里的"留空走画布设置"就永远读不到，字数配置形同虚设。
+     * 顺带核对四个审计字段确实透到了列表接口（前端卡片显示"创建人/最近修改人"依赖它）。
+     */
+    @Test
+    void canvasSettingsAndAuditColumnsSurviveApiRoundTrip() {
+        String owner = registerAndLogin("p4canvas_set");
+        String withSettings = "{\"name\":\"canvas-set\","
+                + "\"trigger\":{\"type\":\"manual\"},"
+                + "\"settings\":{\"wechatLength\":2600,\"xhsLength\":900},"
+                + "\"nodes\":[{\"id\":\"c\",\"type\":\"copy.write\",\"params\":{\"mode\":\"wechat\"}}],"
+                + "\"edges\":[]}";
+        long id = Long.parseLong(extractString(
+                call(HttpMethod.POST, "/api/workflows", withSettings, owner).getBody(), "workflowId"));
+
+        assertThat(call(HttpMethod.GET, "/api/workflows/" + id, null, owner).getBody())
+                .contains("\"settings\"", "\"wechatLength\":2600", "\"xhsLength\":900");
+
+        String list = call(HttpMethod.GET, "/api/workflows", null, owner).getBody();
+        assertThat(list).contains("\"creator\":\"p4canvas_set\"", "\"updater\":\"p4canvas_set\"")
+                .contains("\"updateTime\"");
+
+        // 更新后：updater 落到操作人，create_time 不受影响（只有 update_time 走应用层刷新）
+        assertThat(call(HttpMethod.PUT, "/api/workflows/" + id, withSettings, owner).getBody())
+                .contains("\"code\":\"0\"");
+        assertThat(call(HttpMethod.GET, "/api/workflows", null, owner).getBody()).contains("\"version\":2");
+    }
+
     private static String extractString(String json, String field) {
         int i = json.indexOf("\"" + field + "\"");
         int start = json.indexOf(':', i) + 1;
