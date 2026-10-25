@@ -24,9 +24,14 @@ jobs:
         run: mvn -B verify
 
       - name: 配置口径冒断言（本地默认不得开启鉴权，防止误改默认值上线）
-        # 值里含冒号+空格，必须用块标量：plain scalar 会被 YAML 当成映射解析，整个 workflow 失效
+        # 锚定 agentflow.security 块里的下一行 enabled:，而不是整文件 grep——
+        # 反向验过：旧写法在"auth 翻 true + 别处补一行 enabled: false"时仍 PASS（漏报）。
+        # 允许两种绿色形态：字面 false，或 ${ENV:false}（默认值仍是 false）。true 的任意形态必须红。
         run: |
-          grep -q "enabled: false" server-application/src/main/resources/application.yml
+          awk '/^  security:[[:space:]]*$/{f=1;next} f && /^[[:space:]]*enabled:/{print;exit}' \
+            server-application/src/main/resources/application.yml \
+            | grep -Eq '^[[:space:]]*enabled:[[:space:]]*(\$\{[A-Za-z0-9_]+:[[:space:]]*)?false\}?[[:space:]]*(#.*)?$' \
+            || { echo "agentflow.security.enabled 的本地默认不再是 false，阻断"; exit 1; }
 
       - name: 密钥泄漏扫描（禁止提交真实 key）
         run: |
