@@ -62,11 +62,13 @@ const DEFAULT_WECHAT_LENGTH = 2000
 const DEFAULT_XHS_LENGTH = 1000
 const MIN_LENGTH = 100
 const MAX_LENGTH = 10000
+// 小红书正文 1000 字是平台硬限：画布上填再高，xhs.draft 也只会产出被截断的稿子，所以与后端同档夹取
+const MAX_XHS_LENGTH = 1000
 
-function clampLength(v, fallback) {
+function clampLength(v, fallback, max = MAX_LENGTH) {
   const n = Number(v)
   if (!Number.isFinite(n) || n <= 0) return fallback
-  return Math.max(MIN_LENGTH, Math.min(MAX_LENGTH, Math.round(n)))
+  return Math.max(MIN_LENGTH, Math.min(max, Math.round(n)))
 }
 
 const workflowId = ref(props.workflowId)
@@ -74,7 +76,7 @@ const name = ref(props.initialDsl?.name || '未命名工作流')
 const cron = ref(props.initialDsl?.trigger?.type === 'cron' ? props.initialDsl.trigger.expression || '' : '')
 const canvasSettings = ref({
   wechatLength: clampLength(props.initialDsl?.settings?.wechatLength, DEFAULT_WECHAT_LENGTH),
-  xhsLength: clampLength(props.initialDsl?.settings?.xhsLength, DEFAULT_XHS_LENGTH),
+  xhsLength: clampLength(props.initialDsl?.settings?.xhsLength, DEFAULT_XHS_LENGTH, MAX_XHS_LENGTH),
 })
 const showSettings = ref(false)
 const nextFireAt = ref('')
@@ -251,7 +253,7 @@ function toggleSettings() {
 function applyCanvasSettings() {
   canvasSettings.value = {
     wechatLength: clampLength(canvasSettings.value.wechatLength, DEFAULT_WECHAT_LENGTH),
-    xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH),
+    xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH, MAX_XHS_LENGTH),
   }
   flash('画布设置已更新，点"保存"生效')
 }
@@ -272,7 +274,7 @@ function toDsl() {
     layout: Object.fromEntries(graph.nodes.map((n) => [n.id, { x: Math.round(n.x), y: Math.round(n.y) }])),
     settings: {
       wechatLength: clampLength(canvasSettings.value.wechatLength, DEFAULT_WECHAT_LENGTH),
-      xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH),
+      xhsLength: clampLength(canvasSettings.value.xhsLength, DEFAULT_XHS_LENGTH, MAX_XHS_LENGTH),
     },
   }
 }
@@ -492,7 +494,8 @@ const groups = computed(() => {
         </div>
         <div class="inspector-form">
           <p class="palette-tip">
-            文案成稿节点未单独设置"目标字数"时，按这里的渠道默认字数生成（100~10000）。
+            文案成稿节点未单独设置"目标字数"时，按这里的渠道默认字数生成。公众号 100~10000；
+            小红书正文有 1000 字平台硬限，超出会被截断，所以最高只能填 1000。
           </p>
           <label>
             <span>公众号文章字数</span>
@@ -500,7 +503,7 @@ const groups = computed(() => {
           </label>
           <label>
             <span>小红书文案字数</span>
-            <input v-model.number="canvasSettings.xhsLength" type="number" :min="100" :max="10000" @change="applyCanvasSettings" />
+            <input v-model.number="canvasSettings.xhsLength" type="number" :min="100" :max="1000" @change="applyCanvasSettings" />
           </label>
         </div>
       </aside>

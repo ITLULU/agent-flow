@@ -237,6 +237,11 @@ class CopyWriteNodeExecutorTest {
         StubGateway cleared = new StubGateway(STRUCTURED);
         runWithCtx(Map.of("topic", "T", "length", ""), CTX, cleared);
         assertThat(cleared.last.prompt()).contains("正文约 2000 字");
+
+        // 小红书渠道另有平台硬上限：画布上填 3000 也只会生成发不全的稿子，夹到 1000
+        StubGateway xhsTooLong = new StubGateway(STRUCTURED);
+        runWithCtx(Map.of("mode", "xiaohongshu", "topic", "T", "length", 3000), CTX, xhsTooLong);
+        assertThat(xhsTooLong.last.prompt()).contains("正文约 1000 字");
     }
 
     @Test

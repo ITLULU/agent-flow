@@ -155,32 +155,36 @@ public class CopyWriteNodeExecutor implements NodeExecutor {
      * 字数优先级：节点显式 length > 画布设置（wechatLength/xhsLength）> 内置默认（wechat 2000、xhs 1000）。
      * 画布设置是"生成时应该限制的字数"，节点参数只是单点覆盖；两种来源都过一遍 MIN/MAX 夹取，
      * 防止手滑填 0 或十万把链路变成烧 token 的复读机。
+     * 上限按渠道分档：小红书正文 1000 字是平台硬限（xhs.draft 超了会警告"将被平台截断"），
+     * 画布上把 xhsLength 调到 3000 也只会产出一篇发不全的稿子，所以直接夹到 1000。
      */
     private static final int MIN_LENGTH = 100;
     private static final int MAX_LENGTH = 10_000;
+    static final int MAX_XHS_LENGTH = 1000;
 
     static int resolveLength(NodeInput input, ExecutionContext ctx, String mode) {
         boolean wechat = MODE_WECHAT.equals(mode);
         int fallback = wechat ? DEFAULT_WECHAT_LENGTH : DEFAULT_XHS_LENGTH;
+        int max = wechat ? MAX_LENGTH : MAX_XHS_LENGTH;
         Object explicit = input.param("length");
         if (explicit != null) {
             int parsed = asInt(explicit, -1);
             if (parsed > 0) {
-                return clampLength(parsed);
+                return clampLength(parsed, max);
             }
         }
         Object setting = ctx.setting(wechat ? SETTING_WECHAT_LENGTH : SETTING_XHS_LENGTH);
         if (setting != null) {
             int parsed = asInt(setting, -1);
             if (parsed > 0) {
-                return clampLength(parsed);
+                return clampLength(parsed, max);
             }
         }
         return fallback;
     }
 
-    private static int clampLength(int v) {
-        return Math.max(MIN_LENGTH, Math.min(v, MAX_LENGTH));
+    private static int clampLength(int v, int max) {
+        return Math.max(MIN_LENGTH, Math.min(v, max));
     }
 
     private static String buildUserPrompt(String mode, String topic, String material, NodeInput input, int length) {
