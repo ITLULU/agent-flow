@@ -14,8 +14,10 @@
 | JDK 21 | 21.x | ✅ | `21.0.12.1` @ `~/tools/jdk-21.0.12.1+1/Contents/Home`。**注意 `~/.zshrc` 把 `JAVA_HOME` 默认设成 JDK 8（Zulu）**，跑 `mvn` 前必须显式 export 到 21，否则 javac 8 编 `record` 会报"需要 class, interface 或 enum"这种看着像源码坏掉的假错 |
 | JDK 8 | 只给老项目用 | ✅ | Zulu 8.0.504 @ `~/tools/zulu8.96.0.205-...`（Apple Silicon 无 Temurin 8 构建，Zulu 是唯一原生来源） |
 | Maven | ≥ 3.9 | ✅ | 3.10.0 @ `~/tools/apache-maven-3.10.0`。本地仓**不在 `~/.m2`**：`conf/settings.xml` 指向 `/Users/a/m2/repository`（约 496MB，spring-ai/spring-cloud 全量已缓存）。`mvn -o` 对 spring-ai-agent 会报 `present, but unavailable`——那是 3.10 的 `_remote.repositories` 归属校验，**不是缺依赖**，联网走已配的阿里镜像即可（实测单个 pom 0.3s） |
-| Node.js | ≥ 20 LTS | 🟡 装了但**不在 PATH 上** | 二进制在 `~/tools/node22/bin/`（node v22.20.0 / npm 10.9.3），`~/.zshrc` 从未把它加进 PATH ⇒ **用户终端与 agent shell 都 `command -v node` 找不到**。⚠️ 而且"用绝对路径调 npm"也不行：`npm` 的 shebang 是 `#!/usr/bin/env node`，node 不在 PATH 时直接 `env: node: No such file or directory`。正确姿势是把 bin 目录加到 PATH 再跑：<br>`export PATH="$HOME/tools/node22/bin:$PATH"`<br>本机 `/usr/local/bin`、`/opt/homebrew/bin`、`~/.nvm` 三处都没有第二个 node，所以别指望"系统里那个 node"。要长期生效就把上面这行写进 `~/.zshrc` |
+| Node.js | ≥ 20 LTS | ✅ | node **v22.20.0** / npm **10.9.3** @ `~/tools/node22/bin/`。`~/.zshrc:35` 有 `export PATH="$HOME/tools/node22/bin:$PATH"`，**新开终端能直接用**（证据：`/bin/zsh -ic 'command -v node'` ⇒ `/Users/a/tools/node22/bin/node`）。⚠️ 但**内嵌的非交互 shell 不保证**：凡在 2026-10-25 11:45 之前抓过环境快照的进程（本仓库里跑的那个 agent shell 就是），PATH 里没有 `node22/bin`，`command -v node` 依旧找不到 —— 别据此断言"这台机器没装 Node"。同一条原因还让**绝对路径调 npm** 失败：`npm` 的 shebang 是 `#!/usr/bin/env node`，所以 `~/tools/node22/bin/npm -v` 报 `env: node: No such file or directory`；在缺 PATH 的 shell 里必须先补：<br>`export PATH="$HOME/tools/node22/bin:$PATH"`<br>本机 `/usr/local/bin`、`/opt/homebrew/bin`、`~/.nvm` 三处都没有第二个 node（逐个 `ls` 验过；别用带通配的 `ls`，zsh 通配无匹配会中止整行造成假阴性），所以别指望"系统里那个 node" |
 | pnpm | ≥ 9（可选） | 📥 未装 | 前端实际用 **npm**：仓库里是 `package-lock.json`，`node_modules` 30 个顶层包与 `package.json` 声明（`vue` + `@logicflow/core` + `vite` + `@vitejs/plugin-vue`）匹配，**没有** vue-router/pinia/element-plus —— 那些本就不是本项目依赖，别误判成"装漏了" |
+| Docker Desktop | 最新稳定 | ✅ | App **4.96.1** / 引擎 **29.9.2**。**macOS 没有 GPU 直通**（`docker info` 里没有 nvidia runtime），所以 Mac 上跑 GPU 精排走的是宿主机 llama.cpp + Metal，不是容器（见 `SpringCloudAdmin/rerank-apple-gpu/`）。CLI 不在 PATH：`~/.docker/bin`；且 **不会自启**（`AutoStart=false` + 登录项 disabled），重启后要 `open -a Docker` |
+| Homebrew | — | ⛔ 不装 | 装它要交互 sudo，本机 `sudo` 一律要密码 ⇒ 全部走 `~/tools` 用户态 tarball 安装 |
 
 ### 前端构建的可复现性（2026-10-25 11:36 实测）
 
@@ -24,8 +26,6 @@
 产出到 `server/agent-flow-server/server-application/src/main/resources/static/`（`index.html` + `assets/index-*.css|js`），
 由 Spring Boot 当静态资源伺服 —— 所以 `ls dist` 一定是空的，那不是失败。
 重建后的文件名哈希与仓库里**已提交的产物完全一致**（`git status` 干净），即"提交的静态资源 = 本机这条命令的输出"可复现。
-| Docker Desktop | 最新稳定 | ✅ | App **4.96.1** / 引擎 **29.9.2**。**macOS 没有 GPU 直通**（`docker info` 里没有 nvidia runtime），所以 Mac 上跑 GPU 精排走的是宿主机 llama.cpp + Metal，不是容器（见 `SpringCloudAdmin/rerank-apple-gpu/`）。CLI 不在 PATH：`~/.docker/bin`；且 **不会自启**（`AutoStart=false` + 登录项 disabled），重启后要 `open -a Docker` |
-| Homebrew | — | ⛔ 不装 | 装它要交互 sudo，本机 `sudo` 一律要密码 ⇒ 全部走 `~/tools` 用户态 tarball 安装 |
 
 ## 本机已自建的运行时依赖（不需要你准备）
 
@@ -40,6 +40,25 @@
 > 反向提醒：`docker-compose/` 目录下的 Nacos / Redis / MySQL / RabbitMQ / RocketMQ / Seata / Sentinel / Kafka
 > 是 `SpringCloudAdmin` 自己的微服务演示栈，**agent-flow 运行期一个都不连**（Nacos 原本是传递依赖，P7-3#12 已排除）。
 > 起环境时别按目录名挨个 `up`。
+
+## 依赖下载来源与全局路径（2026-10-25 12:05 实测）
+
+| 生态 | 配置读的是哪一份 | 落地/缓存位置 | 下载来源 |
+|---|---|---|---|
+| Maven | **全局 = `~/tools/apache-maven-3.10.0/conf/settings.xml`**（`mvn -X validate` 打印 `Global preference: ...` 可复核）；用户级 `~/.m2/settings.xml` **不存在** | 本地仓 `/Users/a/m2/repository`（由上面文件的 `<localRepository>` 指定） | 阿里 `https://maven.aliyun.com/repository/public`（`<mirrorOf>central</mirrorOf>`） |
+| npm | 四级（builtin / `$prefix/etc/npmrc` / `~/.npmrc` / 项目 `.npmrc`）**全部不存在** ⇒ `npm config list` 只有 `default values` | `prefix=/Users/a/tools/node22`；全局包 `…/lib/node_modules`（只有 npm、corepack）；全局 bin `…/bin`；缓存 `~/.npm`（113MB） | 见下面 lockfile 一条：现有依赖走镜像，但**配置里没存镜像** |
+| Docker | `~/.docker/daemon.json` | 镜像层在 VM 里，宿主侧文件 `~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw` | `docker.m.daocloud.io` / `docker.1ms.run` / `docker.xuanyuan.me` |
+
+> ⚠️ `/Users/a/m2/settings.xml` 与 Maven `conf/settings.xml` 内容逐字节相同，但**没有任何东西读它** —— 改它不会生效，要改就改 `conf/` 那份。同理，`node_modules` 装得上不代表 registry 配好了。
+
+### npm registry：要不要 `npm config set registry https://registry.npmmirror.com`
+
+- **现有 88 个依赖本来就走镜像**：`web/agent-flow-web/package-lock.json` 里 88 条 `resolved` 全是 `registry.npmmirror.com`（且 88 条都带 `sha512` `integrity`），文件已提交在 `459f44b`。所以 `npm ci` / 重装 `node_modules` **不受 registry 配置影响**，改成 npmjs 也不会重下。
+- **但 registry 从未落盘**：`npm config get registry` 返回 `https://registry.npmjs.org/`（因为四级 npmrc 都不存在）。⇒ 只有"新增包"和"将来重写 lockfile"这一步会先打 npmjs。
+- **实测延迟**（口径：完整拉一次 `vite` 的 packument（约 39MB），各 3 次采样，含代理与当日网络，不是统计结论）。命令：
+  `for i in 1 2 3; do curl -s -o /dev/null -w '%{time_total}s %{size_download}B\n' https://registry.npmjs.org/vite; done`（镜像域名同理）
+  ⇒ npmjs `7.80 / 8.24 / 8.31 s`，npmmirror `3.09 / 3.34 / 3.62 s`，镜像快 2 倍以上。注意这个包元数据特别大，小包差距会小些。
+- 结论：**建议设**（`npm config set registry https://registry.npmmirror.com`，写 `~/.npmrc`），它只影响解析、不改变已锁定包的字节（integrity 校验兜底）；代价是这份 lockfile 已经把**所有消费者（包括将来放开的 CI）绑到一个第三方镜像**上——镜像若不可用，`npm ci` 会一起失败，这属于可接受的已知耦合，但要心里有数。
 
 ## 本机开发（台式机，历史记录，已过期）
 

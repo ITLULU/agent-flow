@@ -149,7 +149,7 @@ RocketMQ / Seata / Sentinel / Kafka 都是 `SpringCloudAdmin` 自己的微服务
 | **PostgreSQL 16 + pgvector** | prod profile 主数据源（application.yml:132-134 `${DB_URL}`）；默认 profile 用 H2 文件库 `./data/agentflow`（:14） | ✅ 本地 `pgvector/pgvector:pg16` 容器，compose 已带 | 默认 profile 起不来不影响本地跑（H2 够用）；prod profile 连不上则 readiness DOWN |
 | **S3 兼容对象存储** | 成品远端副本，`AGENTFLOW_STORAGE_*`（:76-86） | ✅ 本地 MinIO（`http://minio:9000`）已按生产同形态验过 | `enabled=false` 时一个字节不出网、也不建客户端；`enabled=true` 但配置不齐 = **启动即退出**（故意的 fail-fast） |
 | **成品库目录** | 所有产物读写被约束在此目录内（`JdbcContentStore.resolveInside`，:71） | ✅ 默认 `./data/library` | 目录不可写 ⇒ 启动自检打 ERROR，`publish.local`/`xhs.draft` 执行失败（`StartupSelfCheck.java:104`） |
-| **JDK 21 / Maven 3.10 / Node 22** | 编译运行（虚拟线程需 21）、Vue `^3.5.44` + Vite 5.4.21 前端 | ✅ 三者都在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21；**Node 只装了没进 PATH**（`~/tools/node22/bin` 不在 `~/.zshrc` 里），要先 `export PATH="$HOME/tools/node22/bin:$PATH"` 才能跑 npm —— 用绝对路径调 `npm` 会因 `env: node: not found` 失败 |
+| **JDK 21 / Maven 3.10 / Node 22** | 编译运行（虚拟线程需 21）、Vue `^3.5.44` + Vite 5.4.21 前端 | ✅ 三者都在 `~/tools` 下 | 低版本 JDK 编译直接失败；注意 `~/.zshrc` 默认把 `JAVA_HOME` 指向 JDK 8，跑 mvn 前要显式切 21。Node 已在 `~/.zshrc:35` 进 PATH，**新开终端可直接 `node -v`**；但环境快照早于该时刻的进程（如内嵌的 agent shell）里 `node` 仍不可见，此时**用绝对路径调 `npm` 会因 `env: node: No such file or directory` 失败**（npm 的 shebang 是 `#!/usr/bin/env node`），需先 `export PATH="$HOME/tools/node22/bin:$PATH"` |
 | **Docker Desktop** | 容器形态复验与 compose 起停（本机 4.96.1 / 引擎 29.9.2） | ✅ | **不会自启**（`AutoStart=false` 且登录项 disabled），重启后要手动 `open -a Docker` |
 | **GitHub Actions** | CI：`ubuntu-latest` + JDK 21（`.github/workflows/ci.yml:10,20`） | ❌ 远端 | push 后不绿就是没验证过 |
 
@@ -177,6 +177,10 @@ PG chunk store（`application-persistent.yml:5`）、可选 Milvus（本机 v2.4
 `AI_API_KEY`（LLM+生图同源，`BAILIAN_API_KEY` 兼容保留）、`WECHAT_APPID`/`WECHAT_SECRET`（+ 把出口 IP 加白名单）、
 云桶的 AK/SK（上表六项）、以及若要接小红书开放平台的 token。
 **一律走 env 或 `*_FILE` 秘密文件，不要贴进对话、不要写进 yml/compose**；密钥落文件后 600、目录 700。
+
+**前端包来源**：`package-lock.json` 的 88 条 `resolved` 已全部锁定到 `registry.npmmirror.com`（每条都带 `sha512` integrity），
+所以 `npm ci` 与 registry 配置无关；但本机四级 npmrc 都不存在，`npm config get registry` 仍是 npmjs 官方源，**只有新增包会先打官方源**（实测该源在这台机器慢 2 倍以上）。
+建议 `npm config set registry https://registry.npmmirror.com` 把来源落盘；镜像/全局路径完整清单见 `docs/TOOLS-CHECKLIST.md`「依赖下载来源与全局路径」。
 
 ## 3. 架构与关键决策
 
